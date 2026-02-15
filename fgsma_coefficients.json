@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-02-14T00:38:12.166037",
+  "date_range": {
+    "start": "2018-10-31T00:00:00",
+    "end": "2026-02-14T00:00:00",
+    "total_days": 2662
+  },
+  "optimal_coefficients": {
+    "a_fg_linear": 1.6276957022473093,
+    "b_sma_linear": -9.3691354806986,
+    "c_fg_squared": 0.004649342062008177,
+    "d_sma_squared": -0.9979741822381718,
+    "e_fg_sma_interaction": -0.9949141884989983,
+    "f_constant": 78.32009989770702
+  },
+  "optimal_buy_sell_pct": 1.0,
+  "dca_results": {
+    "final_value": 10636.520310169215,
+    "total_return": 299.5687569560186,
+    "btc_holdings": 0.15457088773614758
+  },
+  "fgsma_results": {
+    "final_value": 105813.7368993618,
+    "total_return": 3874.9713335597976,
+    "btc_holdings": 0.5626270565245338
+  },
+  "outperformance": 3575.402576603779
+}

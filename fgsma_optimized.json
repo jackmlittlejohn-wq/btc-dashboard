@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-02-14T14:59:45.487315",
+  "date_range": {
+    "start": "2018-10-31T00:00:00",
+    "end": "2026-02-14T00:00:00",
+    "total_days": 2663
+  },
+  "optimal_parameters": {
+    "ema_period": 60,
+    "fg_thresholds": {
+      "t1_strong_buy_to_buy": 16.42855762698033,
+      "t2_buy_to_hold": 25.017142020369334,
+      "t3_hold_to_sell": 74.96749034165755,
+      "t4_sell_to_strong_sell": 82.07037641979451
+    },
+    "sma_ratio_thresholds_base": {
+      "r1_strong_buy_to_buy": 1.0637503010271512,
+      "r2_buy_to_hold": 1.7855759408436764,
+      "r3_hold_to_sell": 2.8859407790498603,
+      "r4_sell_to_strong_sell": 5.178904608599853
+    },
+    "decay_rate": 0.0510128165456219,
+    "decay_explanation": "Thresholds decay by 5.10% per year. After 7.28 years (2018-2026): 31.7% reduction"
+  },
+  "performance": {
+    "final_value": 98367.8980869735,
+    "total_return": 3593.8752567395227,
+    "btc_holdings": 0.2833963681198777,
+    "buy_signals": 1005,
+    "sell_signals": 713,
+    "hold_days": 945
+  }
+}
