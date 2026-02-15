@@ -611,30 +611,36 @@ def index():
             font-weight: 500;
             color: #374151;
         }
-        .chart-controls {
+        .time-range-selector {
             display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
-            padding: 12px 16px;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 8px;
             background: #f8f9fa;
             border-radius: 12px;
+            justify-content: center;
         }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .checkbox-group input {
-            cursor: pointer;
-            width: 18px;
-            height: 18px;
-            accent-color: #10b981;
-        }
-        .checkbox-group label {
-            cursor: pointer;
+        .time-range-btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            background: #ffffff;
+            border-radius: 8px;
             font-size: 14px;
-            font-weight: 500;
-            color: #374151;
+            font-weight: 700;
+            color: #6b7280;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+        .time-range-btn:hover {
+            background: #f3f4f6;
+            border-color: #10b981;
+        }
+        .time-range-btn.active {
+            background: #10b981;
+            border-color: #10b981;
+            color: #ffffff;
         }
         .chart-wrapper {
             border-radius: 12px;
@@ -1048,71 +1054,27 @@ def index():
                 border-radius: 6px;
             }
 
-            /* Horizontal controls row */
-            .chart-controls {
+            /* Time range selector mobile */
+            .time-range-selector {
                 display: flex;
-                flex-direction: row;
-                gap: 4px;
-                padding: 6px 0;
-                margin-bottom: 6px;
+                gap: 6px;
+                padding: 8px;
+                margin-bottom: 8px;
                 flex-shrink: 0;
-                flex-wrap: wrap;
             }
 
-            .checkbox-group {
+            .time-range-btn {
                 flex: 1;
-                min-width: 70px;
-                padding: 6px 8px;
-                border-radius: 6px;
-                background: #f3f4f6;
-                display: flex;
-                align-items: center;
-                gap: 4px;
+                padding: 10px 8px;
+                font-size: 13px;
+                font-weight: 700;
             }
 
-            .checkbox-group input {
-                width: 16px;
-                height: 16px;
-                margin: 0;
-            }
-
-            .checkbox-group label {
-                font-size: 11px;
-                font-weight: 600;
-                margin: 0;
-                white-space: nowrap;
-            }
-
-            .log-toggle {
-                flex: 1;
-                min-width: 80px;
-                padding: 6px 8px;
-                margin: 0;
-                border-radius: 6px;
-                background: #f3f4f6;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 4px;
-            }
-
-            .log-toggle input {
-                width: 16px;
-                height: 16px;
-                margin: 0;
-            }
-
-            .log-toggle label {
-                font-size: 11px;
-                font-weight: 600;
-                margin: 0;
-            }
-
-            /* Chart maximizes remaining space */
+            /* Chart much taller for better aspect ratio */
             #chart, #signal-chart {
                 flex: 1 !important;
                 height: auto !important;
-                min-height: 450px !important;
+                min-height: 600px !important;
                 max-height: none !important;
             }
 
@@ -1218,23 +1180,11 @@ def index():
                 <button class="chart-tab" onclick="switchChart('faq')">FAQ</button>
             </div>
 
-            <div class="chart-controls" id="price-controls">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="toggle-price" checked>
-                    <label for="toggle-price">Price</label>
-                </div>
-                <div class="checkbox-group">
-                    <input type="checkbox" id="toggle-sma" checked>
-                    <label for="toggle-sma">200W SMA</label>
-                </div>
-                <div class="checkbox-group">
-                    <input type="checkbox" id="toggle-fg">
-                    <label for="toggle-fg">F&G</label>
-                </div>
-                <div class="checkbox-group">
-                    <input type="checkbox" id="toggle-log">
-                    <label for="toggle-log">Log</label>
-                </div>
+            <div class="time-range-selector">
+                <button class="time-range-btn" onclick="setTimeRange('1M')">1M</button>
+                <button class="time-range-btn" onclick="setTimeRange('3M')">3M</button>
+                <button class="time-range-btn" onclick="setTimeRange('1Y')">1Y</button>
+                <button class="time-range-btn active" onclick="setTimeRange('ALL')">All Time</button>
             </div>
 
             <div class="chart-wrapper" id="chart"></div>
@@ -1302,6 +1252,56 @@ def index():
         let currentLayout = null;
         let currentSignalLayout = null;
         let currentChartView = 'price';
+        let currentTimeRange = 'ALL';
+
+        function setTimeRange(range) {
+            currentTimeRange = range;
+
+            // Update button states
+            document.querySelectorAll('.time-range-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Re-render current chart with new time range
+            if (chartData) {
+                if (currentChartView === 'price') {
+                    renderPriceChart();
+                } else if (currentChartView === 'signals') {
+                    renderSignalsChart();
+                }
+            }
+        }
+
+        function getFilteredData(data) {
+            if (!data || !data.daily || currentTimeRange === 'ALL') {
+                return data;
+            }
+
+            const now = new Date();
+            let cutoffDate;
+
+            switch(currentTimeRange) {
+                case '1M':
+                    cutoffDate = new Date(now.setMonth(now.getMonth() - 1));
+                    break;
+                case '3M':
+                    cutoffDate = new Date(now.setMonth(now.getMonth() - 3));
+                    break;
+                case '1Y':
+                    cutoffDate = new Date(now.setFullYear(now.getFullYear() - 1));
+                    break;
+                default:
+                    return data;
+            }
+
+            const filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
+
+            return {
+                ...data,
+                daily: filteredDaily
+            };
+        }
 
         function toggleFaqSection(header) {
             if (window.innerWidth > 768) return; // Only work on mobile
@@ -1318,7 +1318,7 @@ def index():
             const priceChart = document.getElementById('chart');
             const signalChart = document.getElementById('signal-chart');
             const faqContent = document.getElementById('faq-content');
-            const priceControls = document.getElementById('price-controls');
+            const timeRangeSelector = document.querySelector('.time-range-selector');
             const tabs = document.querySelectorAll('.chart-tab');
 
             tabs.forEach(tab => tab.classList.remove('active'));
@@ -1327,25 +1327,27 @@ def index():
                 priceChart.classList.remove('hidden');
                 signalChart.classList.add('hidden');
                 faqContent.classList.add('hidden');
-                priceControls.classList.remove('hidden');
+                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
                 tabs[0].classList.add('active');
                 if (chartData) {
+                    renderChart(chartData);
                     setTimeout(() => Plotly.Plots.resize('chart'), 100);
                 }
             } else if (view === 'signals') {
                 priceChart.classList.add('hidden');
                 signalChart.classList.remove('hidden');
                 faqContent.classList.add('hidden');
-                priceControls.classList.remove('hidden');
+                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
                 tabs[1].classList.add('active');
                 if (chartData) {
+                    renderSignalChart(chartData);
                     setTimeout(() => Plotly.Plots.resize('signal-chart'), 100);
                 }
             } else if (view === 'faq') {
                 priceChart.classList.add('hidden');
                 signalChart.classList.add('hidden');
                 faqContent.classList.remove('hidden');
-                priceControls.classList.add('hidden');
+                if (timeRangeSelector) timeRangeSelector.style.display = 'none';
                 tabs[2].classList.add('active');
                 if (chartData) {
                     renderFAQ(chartData);
@@ -1391,11 +1393,14 @@ def index():
 
         function renderChart(data) {
             try {
+                // Apply time range filter
+                data = getFilteredData(data);
+
                 const traces = [];
-                const showPrice = document.getElementById('toggle-price').checked;
-                const showSMA = document.getElementById('toggle-sma').checked;
-                const showFG = document.getElementById('toggle-fg').checked;
-                const useLogScale = document.getElementById('toggle-log').checked;
+                const showPrice = true;  // Always show price
+                const showSMA = true;    // Always show 200W SMA
+                const showFG = true;     // Always show Fear & Greed
+                const useLogScale = false;  // Linear scale by default
 
             if (showPrice && data.daily) {
                 traces.push({
@@ -1510,21 +1515,12 @@ def index():
 
             const config = {
                 responsive: true,
-                displayModeBar: true,
+                displayModeBar: false,
                 displaylogo: false,
                 scrollZoom: false,
-                modeBarButtons: [
-                    ['zoom2d', 'pan2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']
-                ],
-                doubleClick: 'reset',
-                showTips: true,
-                toImageButtonOptions: {
-                    format: 'png',
-                    filename: 'btc_chart',
-                    height: 1000,
-                    width: 1400,
-                    scale: 1
-                }
+                doubleClick: false,
+                showTips: false,
+                staticPlot: false
             };
 
             // Preserve zoom/pan state on refresh, but reset when toggling scale
@@ -1549,8 +1545,11 @@ def index():
 
         function renderSignalChart(data) {
             try {
+            // Apply time range filter
+            data = getFilteredData(data);
+
             const traces = [];
-            const useLogScale = document.getElementById('toggle-log').checked;
+            const useLogScale = false;  // Linear scale by default
 
             // BTC price line
             traces.push({
@@ -1623,21 +1622,12 @@ def index():
 
             const config = {
                 responsive: true,
-                displayModeBar: true,
+                displayModeBar: false,
                 displaylogo: false,
                 scrollZoom: false,
-                modeBarButtons: [
-                    ['zoom2d', 'pan2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']
-                ],
-                doubleClick: 'reset',
-                showTips: true,
-                toImageButtonOptions: {
-                    format: 'png',
-                    filename: 'btc_chart',
-                    height: 1000,
-                    width: 1400,
-                    scale: 1
-                }
+                doubleClick: false,
+                showTips: false,
+                staticPlot: false
             };
 
             // Preserve zoom/pan state, but reset when toggling scale
