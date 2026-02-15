@@ -196,12 +196,12 @@ def fetch_daily_btc_data():
     except Exception as e:
         print(f"[WARNING] Could not load CSV baseline: {e}")
 
-    # Fetch recent live data from CoinGecko
-    df_recent = fetch_recent_data_coingecko(days=90)
+    # Fetch recent live data from CoinGecko (30 days = daily candles, 90 days = 4-day candles)
+    df_recent = fetch_recent_data_coingecko(days=30)
 
     # Combine historical + recent
     if df_historical is not None and df_recent is not None:
-        # Remove overlap: keep historical up to 90 days ago, then append recent
+        # Remove overlap: keep historical up to 30 days ago, then append recent
         cutoff_date = df_recent['time'].min() - timedelta(days=1)
         df_historical_filtered = df_historical[df_historical['time'] <= cutoff_date]
 
@@ -917,7 +917,7 @@ def index():
 
             .chart-section {
                 width: 100%;
-                padding: 16px;
+                padding: 12px;
                 overflow-y: visible;
             }
 
@@ -928,16 +928,17 @@ def index():
 
             .chart-tabs {
                 flex-wrap: wrap;
-                gap: 8px;
-                margin-bottom: 16px;
+                gap: 6px;
+                margin-bottom: 12px;
             }
 
             .chart-tab {
                 flex: 1;
-                min-width: calc(50% - 4px);
-                padding: 10px 12px;
-                font-size: 13px;
+                min-width: calc(50% - 3px);
+                padding: 12px 10px;
+                font-size: 14px;
                 text-align: center;
+                font-weight: 500;
             }
 
             .log-toggle {
@@ -979,12 +980,13 @@ def index():
             }
 
             #chart, #signal-chart {
-                height: 350px !important;
+                height: 400px !important;
+                max-height: 50vh;
             }
 
             .data-panel {
                 width: 100%;
-                padding: 16px;
+                padding: 12px;
                 border-left: none;
                 border-top: 1px solid #e5e7eb;
             }
@@ -995,16 +997,18 @@ def index():
             }
 
             .fgsma-card {
-                padding: 20px;
+                padding: 16px;
+                margin-bottom: 16px;
             }
 
             .fgsma-date {
                 font-size: 13px;
-                margin-bottom: 12px;
+                margin-bottom: 10px;
             }
 
             .fgsma-signal-text {
-                font-size: 36px;
+                font-size: 42px;
+                font-weight: 700;
             }
 
             .fgsma-subsignals {
