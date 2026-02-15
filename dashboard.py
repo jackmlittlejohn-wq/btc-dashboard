@@ -170,8 +170,8 @@ def fetch_daily_btc_data():
             limit = 500
 
             all_candles = []
-            # Start from 2018 instead of 2015 to reduce memory
-            since = exchange.parse8601('2018-01-01T00:00:00Z')
+            # Start from 2016 for more signals (compromise between memory and data)
+            since = exchange.parse8601('2016-01-01T00:00:00Z')
 
             print(f"[INFO] Fetching historical data from {exchange_name}...")
             batch_count = 0
@@ -475,7 +475,7 @@ def api_data():
     # Generate buy/sell signals for visualization (cached for 1 hour)
     global SIGNALS_CACHE
     signals_age = time.time() - SIGNALS_CACHE['last_update'] if SIGNALS_CACHE['last_update'] else float('inf')
-    if signals_age > 3600 or SIGNALS_CACHE['buy_dates'] is None:
+    if signals_age > 300 or SIGNALS_CACHE['buy_dates'] is None:  # 5 min cache
         print("[INFO] Generating signals (cached for 1 hour)")
         buy_dates, buy_prices, sell_dates, sell_prices = generate_signals(data['daily'], FGSMA_PARAMS)
         SIGNALS_CACHE = {
