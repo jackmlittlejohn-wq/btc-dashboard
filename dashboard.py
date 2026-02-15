@@ -144,51 +144,84 @@ def combine_signals(fg_signal, sma_signal):
 # DATA FETCHING
 # ============================================================================
 
+def fetch_recent_data_coingecko(days=90):
+    """Fetch recent Bitcoin data from CoinGecko API (free, no API key needed)"""
+    try:
+        print(f"[INFO] Fetching last {days} days from CoinGecko...")
+        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+        params = {'vs_currency': 'usd', 'days': days, 'interval': 'daily'}
+        response = requests.get(url, params=params, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            prices = data.get('prices', [])
+
+            if prices:
+                # Convert to DataFrame
+                df_recent = pd.DataFrame(prices, columns=['timestamp', 'close'])
+                df_recent['time'] = pd.to_datetime(df_recent['timestamp'], unit='ms').dt.tz_localize(None)
+                df_recent['open'] = df_recent['close']  # CoinGecko only gives close prices
+                df_recent['high'] = df_recent['close']
+                df_recent['low'] = df_recent['close']
+                df_recent['volume'] = 0  # Not provided by this endpoint
+                df_recent = df_recent[['time', 'open', 'high', 'low', 'close', 'volume']]
+                print(f"[OK] Fetched {len(df_recent)} days from CoinGecko")
+                return df_recent
+
+        print(f"[WARNING] CoinGecko returned status {response.status_code}")
+        return None
+    except Exception as e:
+        print(f"[WARNING] CoinGecko API failed: {e}")
+        return None
+
 def fetch_daily_btc_data():
-    """Fetch daily BTC/USD price data with CSV fallback"""
-    # Try live API first
+    """Fetch daily BTC/USD price data: historical baseline + live updates"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path = os.path.join(script_dir, 'btc_historical_data.csv')
+
+    # Load historical baseline from CSV
+    df_historical = None
     try:
-        import yfinance as yf
-        print("[INFO] Attempting to fetch live data from Yahoo Finance...")
-        btc = yf.Ticker("BTC-USD")
-        df = btc.history(start="2015-01-01", interval="1d")
-
-        if df is not None and len(df) > 1400:
-            print(f"[OK] Fetched {len(df)} days of live data")
-            df = df.reset_index()
-            df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-            df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
-                                     'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-            df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
-            return df
-        else:
-            print("[WARNING] Live API returned insufficient data, trying CSV fallback...")
-    except Exception as e:
-        print(f"[WARNING] Live API failed: {e}")
-        print("[INFO] Falling back to cached data...")
-
-    # Fallback to cached CSV
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        csv_path = os.path.join(script_dir, 'btc_historical_data.csv')
-
         if os.path.exists(csv_path):
-            print(f"[INFO] Loading cached data from {csv_path}")
-            df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
-            df = df.reset_index()
-            df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-            df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
+            print(f"[INFO] Loading historical baseline from CSV...")
+            df_historical = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+            df_historical = df_historical.reset_index()
+            df_historical['Date'] = pd.to_datetime(df_historical['Date']).dt.tz_localize(None)
+            df_historical = df_historical.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
                                      'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-            df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
-            print(f"[OK] Loaded {len(df)} days from cached data")
-            return df
-        else:
-            print(f"[ERROR] Cached data not found at {csv_path}")
-            return None
+            df_historical = df_historical[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
+            print(f"[OK] Loaded {len(df_historical)} days of historical data")
     except Exception as e:
-        print(f"[ERROR] Failed to load cached data: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[WARNING] Could not load CSV baseline: {e}")
+
+    # Fetch recent live data from CoinGecko
+    df_recent = fetch_recent_data_coingecko(days=90)
+
+    # Combine historical + recent
+    if df_historical is not None and df_recent is not None:
+        # Remove overlap: keep historical up to 90 days ago, then append recent
+        cutoff_date = df_recent['time'].min() - timedelta(days=1)
+        df_historical_filtered = df_historical[df_historical['time'] <= cutoff_date]
+
+        # Combine
+        df = pd.concat([df_historical_filtered, df_recent], ignore_index=True)
+        df = df.drop_duplicates(subset=['time'], keep='last')
+        df = df.sort_values('time').reset_index(drop=True)
+
+        print(f"[OK] Combined dataset: {len(df)} days total (historical + live)")
+        print(f"[OK] Latest data: {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
+        return df
+
+    elif df_recent is not None:
+        print(f"[WARNING] Using CoinGecko data only ({len(df_recent)} days)")
+        return df_recent
+
+    elif df_historical is not None:
+        print(f"[WARNING] Using cached data only (may be stale)")
+        return df_historical
+
+    else:
+        print("[ERROR] No data source available!")
         return None
 
 def calculate_200w_sma_from_daily(daily_df):
