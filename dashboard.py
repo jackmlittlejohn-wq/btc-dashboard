@@ -927,93 +927,94 @@ def index():
                 display: flex;
             }
 
-            /* Data panel at top (20% of screen) */
+            /* FGSMA Signal at top - clean vertical layout */
             .data-panel {
                 width: 100%;
-                height: 20vh;
-                min-height: 140px;
-                max-height: 180px;
-                padding: 8px;
+                padding: 12px;
                 border-left: none;
                 border-bottom: 1px solid #e5e7eb;
-                overflow-y: auto;
                 flex-shrink: 0;
                 order: -1; /* Move to top */
             }
 
             .section-title {
-                font-size: 14px;
-                margin-bottom: 8px;
-                font-weight: 600;
+                font-size: 15px;
+                margin-bottom: 10px;
+                font-weight: 700;
             }
 
-            /* Compact 2-column FGSMA card layout */
+            /* FGSMA card - vertical stack layout */
             .fgsma-card {
-                padding: 10px;
-                margin-bottom: 8px;
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 8px;
+                padding: 16px;
+                margin-bottom: 12px;
                 border-radius: 12px;
             }
 
             .fgsma-date {
-                font-size: 11px;
-                margin-bottom: 4px;
-                grid-column: 1 / -1;
-            }
-
-            .fgsma-signal-text {
-                font-size: 28px;
-                font-weight: 700;
-                grid-column: 1;
-                display: flex;
-                align-items: center;
-            }
-
-            .fgsma-subsignals {
-                grid-column: 2;
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-            }
-
-            .fgsma-subsignal {
-                padding: 6px 8px;
-                border-radius: 6px;
-            }
-
-            .fgsma-subsignal-label {
-                font-size: 9px;
-                font-weight: 600;
-                text-transform: uppercase;
+                font-size: 12px;
+                margin-bottom: 8px;
                 opacity: 0.8;
             }
 
+            .fgsma-signal-text {
+                font-size: 32px;
+                font-weight: 800;
+                margin-bottom: 12px;
+                text-align: center;
+            }
+
+            .fgsma-subsignals {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .fgsma-subsignal {
+                padding: 12px;
+                border-radius: 8px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .fgsma-subsignal-label {
+                font-size: 12px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+
             .fgsma-subsignal-value {
-                font-size: 14px;
+                font-size: 20px;
                 font-weight: 700;
             }
 
-            /* Live market data - compact grid */
+            /* Live market data - separate section with 2x2 grid */
             .data-card {
-                padding: 8px;
-                margin-bottom: 6px;
+                padding: 12px;
+                margin-bottom: 8px;
+                border-radius: 8px;
+                background: #f9fafb;
                 display: inline-block;
-                width: calc(50% - 4px);
-                margin-right: 4px;
+                width: calc(50% - 6px);
+                margin-right: 6px;
+                vertical-align: top;
+            }
+
+            .data-card:nth-child(2n) {
+                margin-right: 0;
             }
 
             .data-label {
-                font-size: 10px;
-                font-weight: 600;
+                font-size: 11px;
+                font-weight: 700;
                 text-transform: uppercase;
-                opacity: 0.7;
+                opacity: 0.6;
+                margin-bottom: 4px;
             }
 
             .data-value {
-                font-size: 16px;
-                font-weight: 700;
+                font-size: 20px;
+                font-weight: 800;
             }
 
             /* Chart section takes remaining space */
@@ -1513,13 +1514,12 @@ def index():
 
             const config = {
                 responsive: true,
-                displayModeBar: window.innerWidth > 768,
+                displayModeBar: true,
                 displaylogo: false,
                 scrollZoom: true,
-                modeBarButtonsToRemove: window.innerWidth <= 768 ? ['lasso2d', 'select2d'] : [],
-                doubleClick: 'reset',
-                showTips: true,
-                touchAction: 'pan'
+                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+                doubleClick: 'autosize',
+                showTips: true
             };
 
             // Preserve zoom/pan state on refresh, but reset when toggling scale
@@ -1618,13 +1618,12 @@ def index():
 
             const config = {
                 responsive: true,
-                displayModeBar: window.innerWidth > 768,
+                displayModeBar: true,
                 displaylogo: false,
                 scrollZoom: true,
-                modeBarButtonsToRemove: window.innerWidth <= 768 ? ['lasso2d', 'select2d'] : [],
-                doubleClick: 'reset',
-                showTips: true,
-                touchAction: 'pan'
+                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+                doubleClick: 'autosize',
+                showTips: true
             };
 
             // Preserve zoom/pan state, but reset when toggling scale
@@ -2194,8 +2193,8 @@ def index():
 
         loadToggleStates();
         loadData();
-        // Refresh every 5 seconds for rapid price updates
-        setInterval(loadData, 5000);
+        // Refresh every 2 seconds for rapid price updates
+        setInterval(loadData, 2000);
 
         // Handle window resize for responsive charts
         let resizeTimer;

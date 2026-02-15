@@ -5,33 +5,32 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 
 def create_icon(size, output_path):
-    """Create a simple Bitcoin icon"""
+    """Create minimalist JL icon with gold text on black background"""
     # Create image with black background
     img = Image.new('RGB', (size, size), color='#000000')
     draw = ImageDraw.Draw(img)
 
-    # Draw orange circle
-    margin = size // 8
-    circle_bbox = [margin, margin, size - margin, size - margin]
-    draw.ellipse(circle_bbox, fill='#f7931a', outline='#f7931a')
-
-    # Draw Bitcoin symbol (₿)
+    # Try to use bold font for better effect
     try:
-        # Try to use a system font
-        font_size = size // 2
+        font_size = int(size * 0.5)  # 50% of icon size
         try:
-            font = ImageFont.truetype("arial.ttf", font_size)
+            # Try Arial Black or Bold first
+            font = ImageFont.truetype("arialbd.ttf", font_size)
         except:
             try:
-                font = ImageFont.truetype("Arial.ttf", font_size)
+                font = ImageFont.truetype("Arial-Bold.ttf", font_size)
             except:
                 try:
                     font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
                 except:
-                    font = ImageFont.load_default()
+                    try:
+                        font = ImageFont.truetype("arial.ttf", font_size)
+                    except:
+                        font = ImageFont.load_default()
 
-        # Draw ₿ symbol
-        text = "₿"
+        # Text to draw
+        text = "JL"
+
         # Get text bounding box
         bbox = draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
@@ -41,11 +40,17 @@ def create_icon(size, output_path):
         x = (size - text_width) // 2
         y = (size - text_height) // 2 - bbox[1]
 
-        draw.text((x, y), text, fill='#000000', font=font)
+        # Draw gold text with subtle shadow for depth
+        shadow_offset = size // 40  # Small shadow offset
+        # Shadow (darker gold)
+        draw.text((x + shadow_offset, y + shadow_offset), text, fill='#996515', font=font)
+        # Main text (bright gold)
+        draw.text((x, y), text, fill='#FFD700', font=font)
+
     except Exception as e:
         print(f"Could not add text: {e}")
-        # Draw simple B if font fails
-        draw.text((size//3, size//3), "B", fill='#000000')
+        # Simple fallback
+        draw.text((size//3, size//3), "JL", fill='#FFD700')
 
     # Save image
     img.save(output_path, 'PNG')
