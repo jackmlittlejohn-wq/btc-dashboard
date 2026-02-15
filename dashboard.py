@@ -1363,6 +1363,10 @@ def index():
         }
 
         function filterSignalsByTimeRange(signals) {
+            // TEMPORARILY DISABLED - return all signals
+            return signals;
+
+            /*
             if (currentTimeRange === 'ALL' || !signals || !signals.dates) {
                 return signals;
             }
@@ -1385,6 +1389,7 @@ def index():
                 dates: filteredDates,
                 prices: filteredPrices
             };
+            */
         }
 
         function toggleFaqSection(header) {
@@ -1662,7 +1667,10 @@ def index():
 
             // Filter sell signals by time range
             if (data.sell_signals && data.sell_signals.dates.length > 0) {
+                console.log('[DEBUG] Total sell signals from backend:', data.sell_signals.dates.length);
+                console.log('[DEBUG] Current time range:', currentTimeRange);
                 const filteredSells = filterSignalsByTimeRange(data.sell_signals);
+                console.log('[DEBUG] Filtered sell signals:', filteredSells.dates.length);
                 if (filteredSells.dates.length > 0) {
                     traces.push({
                         type: 'scatter',
