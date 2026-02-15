@@ -689,6 +689,22 @@ def index():
         .data-value.red { color: #ef4444; }
         .data-value.orange { color: #f59e0b; }
 
+        /* Price flash animations */
+        @keyframes flash-green-anim {
+            0%, 100% { color: #000; }
+            50% { color: #10b981; font-weight: 700; }
+        }
+        @keyframes flash-red-anim {
+            0%, 100% { color: #000; }
+            50% { color: #ef4444; font-weight: 700; }
+        }
+        .data-value.flash-green {
+            animation: flash-green-anim 600ms ease-in-out;
+        }
+        .data-value.flash-red {
+            animation: flash-red-anim 600ms ease-in-out;
+        }
+
         .fgsma-card {
             border: none;
             border-radius: 16px;
@@ -898,7 +914,7 @@ def index():
             max-height: 0;
         }
 
-        /* MOBILE RESPONSIVE STYLES */
+        /* MOBILE RESPONSIVE STYLES - Optimized for Portrait */
         @media (max-width: 768px) {
             body {
                 overflow-x: hidden;
@@ -907,134 +923,196 @@ def index():
 
             .container {
                 flex-direction: column;
-                height: auto;
-                min-height: 100vh;
+                height: 100vh;
+                display: flex;
             }
 
+            /* Data panel at top (20% of screen) */
+            .data-panel {
+                width: 100%;
+                height: 20vh;
+                min-height: 140px;
+                max-height: 180px;
+                padding: 8px;
+                border-left: none;
+                border-bottom: 1px solid #e5e7eb;
+                overflow-y: auto;
+                flex-shrink: 0;
+                order: -1; /* Move to top */
+            }
+
+            .section-title {
+                font-size: 14px;
+                margin-bottom: 8px;
+                font-weight: 600;
+            }
+
+            /* Compact 2-column FGSMA card layout */
+            .fgsma-card {
+                padding: 10px;
+                margin-bottom: 8px;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                border-radius: 12px;
+            }
+
+            .fgsma-date {
+                font-size: 11px;
+                margin-bottom: 4px;
+                grid-column: 1 / -1;
+            }
+
+            .fgsma-signal-text {
+                font-size: 28px;
+                font-weight: 700;
+                grid-column: 1;
+                display: flex;
+                align-items: center;
+            }
+
+            .fgsma-subsignals {
+                grid-column: 2;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .fgsma-subsignal {
+                padding: 6px 8px;
+                border-radius: 6px;
+            }
+
+            .fgsma-subsignal-label {
+                font-size: 9px;
+                font-weight: 600;
+                text-transform: uppercase;
+                opacity: 0.8;
+            }
+
+            .fgsma-subsignal-value {
+                font-size: 14px;
+                font-weight: 700;
+            }
+
+            /* Live market data - compact grid */
+            .data-card {
+                padding: 8px;
+                margin-bottom: 6px;
+                display: inline-block;
+                width: calc(50% - 4px);
+                margin-right: 4px;
+            }
+
+            .data-label {
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+                opacity: 0.7;
+            }
+
+            .data-value {
+                font-size: 16px;
+                font-weight: 700;
+            }
+
+            /* Chart section takes remaining space */
             .chart-section {
                 width: 100%;
-                padding: 12px;
-                overflow-y: visible;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                padding: 8px;
+                overflow: hidden;
             }
 
             .chart-title {
-                font-size: 22px;
-                margin-bottom: 16px;
+                display: none; /* Hide title to save space */
             }
 
+            /* Tabs + toggles horizontal (15% of screen) */
             .chart-tabs {
-                flex-wrap: wrap;
-                gap: 6px;
-                margin-bottom: 12px;
+                display: flex;
+                gap: 4px;
+                margin-bottom: 6px;
+                flex-shrink: 0;
             }
 
             .chart-tab {
                 flex: 1;
-                min-width: calc(50% - 3px);
-                padding: 12px 10px;
-                font-size: 14px;
+                padding: 8px 4px;
+                font-size: 12px;
                 text-align: center;
-                font-weight: 500;
+                font-weight: 600;
+                border-radius: 6px;
             }
 
-            .log-toggle {
-                width: 100%;
-                justify-content: center;
-                padding: 12px 16px;
-                margin-top: 8px;
-                min-height: 44px;
-            }
-
-            .log-toggle input {
-                width: 20px;
-                height: 20px;
-            }
-
-            .log-toggle label {
-                font-size: 14px;
-            }
-
+            /* Horizontal controls row */
             .chart-controls {
-                flex-direction: column;
-                gap: 12px;
-                padding: 12px;
+                display: flex;
+                flex-direction: row;
+                gap: 4px;
+                padding: 6px 0;
+                margin-bottom: 6px;
+                flex-shrink: 0;
+                flex-wrap: wrap;
             }
 
             .checkbox-group {
-                width: 100%;
-                min-height: 44px;
-                padding: 8px;
+                flex: 1;
+                min-width: 70px;
+                padding: 6px 8px;
+                border-radius: 6px;
+                background: #f3f4f6;
+                display: flex;
+                align-items: center;
+                gap: 4px;
             }
 
             .checkbox-group input {
-                width: 20px;
-                height: 20px;
+                width: 16px;
+                height: 16px;
+                margin: 0;
             }
 
             .checkbox-group label {
-                font-size: 15px;
+                font-size: 11px;
+                font-weight: 600;
+                margin: 0;
+                white-space: nowrap;
             }
 
+            .log-toggle {
+                flex: 1;
+                min-width: 80px;
+                padding: 6px 8px;
+                margin: 0;
+                border-radius: 6px;
+                background: #f3f4f6;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+            }
+
+            .log-toggle input {
+                width: 16px;
+                height: 16px;
+                margin: 0;
+            }
+
+            .log-toggle label {
+                font-size: 11px;
+                font-weight: 600;
+                margin: 0;
+            }
+
+            /* Chart maximizes remaining space */
             #chart, #signal-chart {
-                height: 400px !important;
-                max-height: 50vh;
-            }
-
-            .data-panel {
-                width: 100%;
-                padding: 12px;
-                border-left: none;
-                border-top: 1px solid #e5e7eb;
-            }
-
-            .section-title {
-                font-size: 16px;
-                margin-bottom: 12px;
-            }
-
-            .fgsma-card {
-                padding: 16px;
-                margin-bottom: 16px;
-            }
-
-            .fgsma-date {
-                font-size: 13px;
-                margin-bottom: 10px;
-            }
-
-            .fgsma-signal-text {
-                font-size: 42px;
-                font-weight: 700;
-            }
-
-            .fgsma-subsignals {
-                grid-template-columns: 1fr;
-                gap: 12px;
-            }
-
-            .fgsma-subsignal {
-                padding: 14px;
-            }
-
-            .fgsma-subsignal-label {
-                font-size: 11px;
-            }
-
-            .fgsma-subsignal-value {
-                font-size: 18px;
-            }
-
-            .data-card {
-                padding: 14px;
-                margin-bottom: 10px;
-            }
-
-            .data-label {
-                font-size: 11px;
-            }
-
-            .data-value {
-                font-size: 20px;
+                flex: 1 !important;
+                height: auto !important;
+                min-height: 250px !important;
+                max-height: none !important;
             }
 
             .faq-content {
@@ -1569,9 +1647,35 @@ def index():
             }
         }
 
+        let previousPrice = null;
+
         function updateLiveData(data) {
-            document.getElementById('price').textContent = '$' + data.current_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            document.getElementById('sma').textContent = '$' + data.current_sma.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const priceElement = document.getElementById('price');
+            const newPrice = data.current_price;
+
+            // Format without decimals
+            const formattedPrice = '$' + newPrice.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            priceElement.textContent = formattedPrice;
+
+            // Flash animation based on price change
+            if (previousPrice !== null && previousPrice !== newPrice) {
+                priceElement.classList.remove('flash-green', 'flash-red');
+                void priceElement.offsetWidth; // Trigger reflow
+
+                if (newPrice > previousPrice) {
+                    priceElement.classList.add('flash-green');
+                } else if (newPrice < previousPrice) {
+                    priceElement.classList.add('flash-red');
+                }
+
+                setTimeout(() => {
+                    priceElement.classList.remove('flash-green', 'flash-red');
+                }, 600);
+            }
+            previousPrice = newPrice;
+
+            // Update other values without decimals
+            document.getElementById('sma').textContent = '$' + data.current_sma.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
             document.getElementById('ratio').textContent = data.current_ratio.toFixed(2) + 'x';
             document.getElementById('fg').textContent = data.current_fg;
 
@@ -2090,7 +2194,8 @@ def index():
 
         loadToggleStates();
         loadData();
-        setInterval(loadData, 30000);
+        // Refresh every 5 seconds for rapid price updates
+        setInterval(loadData, 5000);
 
         // Handle window resize for responsive charts
         let resizeTimer;
