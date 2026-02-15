@@ -145,33 +145,35 @@ def combine_signals(fg_signal, sma_signal):
 # ============================================================================
 
 def fetch_recent_data_coingecko(days=90):
-    """Fetch recent Bitcoin data from CoinGecko API (free, no API key needed)"""
+    """Fetch recent Bitcoin OHLC data from CoinGecko API (free, no API key needed)"""
     try:
-        print(f"[INFO] Fetching last {days} days from CoinGecko...")
-        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-        params = {'vs_currency': 'usd', 'days': days, 'interval': 'daily'}
+        print(f"[INFO] Fetching last {days} days OHLC from CoinGecko...")
+        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/ohlc"
+        params = {'vs_currency': 'usd', 'days': days}
         response = requests.get(url, params=params, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
-            prices = data.get('prices', [])
 
-            if prices:
-                # Convert to DataFrame
-                df_recent = pd.DataFrame(prices, columns=['timestamp', 'close'])
+            if data and len(data) > 0:
+                # CoinGecko OHLC format: [timestamp, open, high, low, close]
+                df_recent = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close'])
                 df_recent['time'] = pd.to_datetime(df_recent['timestamp'], unit='ms').dt.tz_localize(None)
-                df_recent['open'] = df_recent['close']  # CoinGecko only gives close prices
-                df_recent['high'] = df_recent['close']
-                df_recent['low'] = df_recent['close']
-                df_recent['volume'] = 0  # Not provided by this endpoint
+                df_recent['volume'] = 0  # Not provided by OHLC endpoint
+
+                # Reorder columns to match historical data format
                 df_recent = df_recent[['time', 'open', 'high', 'low', 'close', 'volume']]
-                print(f"[OK] Fetched {len(df_recent)} days from CoinGecko")
+
+                print(f"[OK] Fetched {len(df_recent)} days of OHLC data from CoinGecko")
+                print(f"[OK] Date range: {df_recent['time'].iloc[0].strftime('%Y-%m-%d')} to {df_recent['time'].iloc[-1].strftime('%Y-%m-%d')}")
                 return df_recent
 
         print(f"[WARNING] CoinGecko returned status {response.status_code}")
         return None
     except Exception as e:
         print(f"[WARNING] CoinGecko API failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def fetch_daily_btc_data():
