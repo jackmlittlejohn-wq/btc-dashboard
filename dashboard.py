@@ -145,51 +145,79 @@ def combine_signals(fg_signal, sma_signal):
 # ============================================================================
 
 def fetch_daily_btc_data():
-    """Fetch daily BTC/USD price data using yfinance with Railway compatibility"""
+    """Fetch daily BTC/USD price data using ccxt (Binance) - reliable on Railway"""
     try:
-        import yfinance as yf
-        print("[INFO] Fetching Bitcoin data from Yahoo Finance...")
+        import ccxt
+        print("[INFO] Fetching Bitcoin data from Binance...")
 
-        # Create a session with proper headers to avoid being blocked
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        # Initialize Binance exchange (no API key needed for public data)
+        exchange = ccxt.binance({
+            'enableRateLimit': True,
+            'options': {'defaultType': 'spot'}
         })
 
-        # Fetch data with session and increased timeout
-        btc = yf.Ticker("BTC-USD", session=session)
+        # Fetch historical daily OHLCV data
+        # ccxt limit is typically 1000 candles per request, so fetch multiple times
+        symbol = 'BTC/USDT'
+        timeframe = '1d'
+        limit = 1000
 
-        # Try multiple times with exponential backoff
-        max_retries = 3
-        for attempt in range(max_retries):
+        all_candles = []
+        since = exchange.parse8601('2015-01-01T00:00:00Z')
+
+        print("[INFO] Fetching historical data in batches...")
+        batch_count = 0
+
+        while True:
+            batch_count += 1
+            print(f"[INFO] Fetching batch {batch_count}...")
+
             try:
-                print(f"[INFO] Attempt {attempt + 1}/{max_retries}...")
-                df = btc.history(start="2015-01-01", interval="1d", timeout=30)
+                candles = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
 
-                if df is not None and len(df) > 1400:
-                    print(f"[OK] Fetched {len(df)} days of data from Yahoo Finance")
-                    df = df.reset_index()
-                    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-                    df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
-                                             'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-                    df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
-                    print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
-                    return df
-                else:
-                    print(f"[WARNING] Insufficient data on attempt {attempt + 1}")
+                if not candles:
+                    break
+
+                all_candles.extend(candles)
+
+                # Update since to the timestamp of the last candle
+                if len(candles) < limit:
+                    # Got all available data
+                    break
+
+                since = candles[-1][0] + 86400000  # Add 1 day in milliseconds
+
+                # Rate limiting
+                time.sleep(0.5)
+
+                # Safety limit: max 10 batches (10000 days)
+                if batch_count >= 10:
+                    break
 
             except Exception as e:
-                print(f"[WARNING] Attempt {attempt + 1} failed: {e}")
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
-                    print(f"[INFO] Waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
+                print(f"[WARNING] Batch {batch_count} failed: {e}")
+                break
 
-        print("[ERROR] All yfinance attempts failed")
-        return None
+        if not all_candles:
+            print("[ERROR] No data fetched from Binance")
+            return None
+
+        # Convert to DataFrame
+        df = pd.DataFrame(all_candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['time'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize(None)
+        df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
+
+        # Remove duplicates and sort
+        df = df.drop_duplicates(subset=['time'], keep='last')
+        df = df.sort_values('time').reset_index(drop=True)
+
+        print(f"[OK] Fetched {len(df)} days of data from Binance")
+        print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
+
+        return df
 
     except Exception as e:
-        print(f"[ERROR] BTC data fetch failed: {e}")
+        print(f"[ERROR] Binance data fetch failed: {e}")
         import traceback
         traceback.print_exc()
         return None
