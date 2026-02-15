@@ -838,6 +838,55 @@ def index():
             max-width: 1000px;
             margin: 0 auto;
         }
+        .faq-hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            padding: 40px 32px;
+            margin-bottom: 32px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .faq-hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: heroGlow 10s ease-in-out infinite;
+        }
+        @keyframes heroGlow {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-20px, -20px) scale(1.1); }
+        }
+        .faq-hero-title {
+            font-size: 32px;
+            font-weight: 800;
+            color: #ffffff;
+            margin: 0 0 16px 0;
+            text-align: center;
+            letter-spacing: -0.5px;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .faq-hero-text {
+            font-size: 16px;
+            line-height: 1.8;
+            color: rgba(255,255,255,0.95);
+            margin: 0;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .faq-hero-text strong {
+            color: #ffffff;
+            font-weight: 700;
+        }
         .faq-section {
             background: white;
             border: 1px solid #e5e7eb;
@@ -864,21 +913,50 @@ def index():
         }
         .faq-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             margin-top: 12px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
         .faq-table th {
             text-align: left;
-            padding: 10px;
-            background: #f8f9fa;
-            border: 1px solid #e5e7eb;
+            padding: 14px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
             font-weight: 600;
-            color: #1f2937;
+            color: #ffffff;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .faq-table th:first-child {
+            border-top-left-radius: 8px;
+        }
+        .faq-table th:last-child {
+            border-top-right-radius: 8px;
         }
         .faq-table td {
-            padding: 10px;
+            padding: 12px 16px;
             border: 1px solid #e5e7eb;
+            border-left: none;
+            border-right: none;
             color: #374151;
+            background: #ffffff;
+            transition: background 0.2s ease;
+        }
+        .faq-table tr:hover td {
+            background: #f8f9fa;
+        }
+        .faq-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .faq-table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 8px;
+        }
+        .faq-table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 8px;
         }
         .faq-stats {
             display: grid;
@@ -1999,13 +2077,25 @@ def index():
 
             faqDiv.innerHTML = `
                 <div class="faq-content">
+                    <div class="faq-hero">
+                        <h2 class="faq-hero-title">How the FGSMA Strategy Works</h2>
+                        <p class="faq-hero-text">
+                            The FGSMA model combines two powerful indicators to generate high-conviction trading signals.
+                            <strong>Fear & Greed sentiment</strong> is smoothed using a 60-day exponential moving average to identify
+                            extreme market emotions. <strong>Price positioning</strong> relative to the 200-week simple moving average
+                            reveals whether Bitcoin is historically cheap or expensive. Both indicators use a 5-level threshold system
+                            (Strong Buy, Buy, Hold, Sell, Strong Sell) and must agree to generate signals—this dual confirmation
+                            dramatically reduces false positives. The SMA thresholds decay ${decay}% annually using exponential decay
+                            to account for Bitcoin's maturing market dynamics and volatility compression over time.
+                        </p>
+                    </div>
+
                     <div class="faq-section">
                         <div class="faq-section-header" onclick="toggleFaqSection(this)">
-                            <div class="faq-section-title" style="margin-bottom: 0;">Strategy Overview</div>
+                            <div class="faq-section-title" style="margin-bottom: 0;">📊 Indicator Thresholds</div>
                             <span class="faq-collapse-icon">▼</span>
                         </div>
                         <div class="faq-section-body" id="faq-section-1">
-                            <p style="margin-bottom: 16px;">The FGSMA model generates trading signals by combining sentiment analysis with technical price positioning. Both indicators must align for strong buy/sell signals, reducing false positives.</p>
 
                             <div style="margin-bottom: 24px;">
                                 <div style="font-weight: 600; margin-bottom: 8px; color: #1f2937;">Fear & Greed EMA (60-day)</div>
@@ -2099,17 +2189,6 @@ def index():
                             </div>
                         </div>
                     </div>
-
-                    <div class="faq-section">
-                        <div class="faq-section-header" onclick="toggleFaqSection(this)">
-                            <div class="faq-section-title" style="margin-bottom: 0;">Back-Tested Performance</div>
-                            <span class="faq-collapse-icon">▼</span>
-                        </div>
-                        <div class="faq-section-body" id="faq-section-2">
-                            <div id="performance-chart" style="width: 100%; height: 350px; margin-top: 12px;"></div>
-                            <p style="margin-top: 8px; font-size: 10px; color: #9ca3af;"><em>Past performance does not guarantee future results. For educational purposes only.</em></p>
-                        </div>
-                    </div>
                 </div>
             `;
 
@@ -2119,9 +2198,6 @@ def index():
                     header.style.display = 'flex';
                 });
             }
-
-            // Render performance comparison chart
-            setTimeout(() => renderPerformanceChart(), 100);
         }
 
         function calculateSignalStrength(value, thresholds, isInverted = false) {
