@@ -2177,29 +2177,29 @@ def index():
             }
         }
 
-        document.getElementById('toggle-price').onchange = function() {
-            saveToggleState('toggle-price', this.checked);
-            renderChart(chartData);
-        };
-        document.getElementById('toggle-sma').onchange = function() {
-            saveToggleState('toggle-sma', this.checked);
-            renderChart(chartData);
-        };
-        document.getElementById('toggle-fg').onchange = function() {
-            saveToggleState('toggle-fg', this.checked);
-            renderChart(chartData);
-        };
-        document.getElementById('toggle-log').onchange = function() {
-            saveToggleState('toggle-log', this.checked);
-            // Apply to whichever chart is currently active
-            if (currentChartView === 'price') {
-                renderChart(chartData);
-            } else if (currentChartView === 'signals') {
-                renderSignalChart(chartData);
-            }
-        };
+        // Toggle handlers removed - elements no longer exist
+        // document.getElementById('toggle-price').onchange = function() {
+        //     saveToggleState('toggle-price', this.checked);
+        //     renderChart(chartData);
+        // };
+        // document.getElementById('toggle-sma').onchange = function() {
+        //     saveToggleState('toggle-sma', this.checked);
+        //     renderChart(chartData);
+        // };
+        // document.getElementById('toggle-fg').onchange = function() {
+        //     saveToggleState('toggle-fg', this.checked);
+        //     renderChart(chartData);
+        // };
+        // document.getElementById('toggle-log').onchange = function() {
+        //     saveToggleState('toggle-log', this.checked);
+        //     if (currentChartView === 'price') {
+        //         renderChart(chartData);
+        //     } else if (currentChartView === 'signals') {
+        //         renderSignalChart(chartData);
+        //     }
+        // };
 
-        loadToggleStates();
+        // loadToggleStates(); // Removed - toggles no longer exist
         loadData();
         // Refresh every 1 second for real-time price updates
         setInterval(loadData, 1000);
