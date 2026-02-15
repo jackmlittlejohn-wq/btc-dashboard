@@ -36,17 +36,28 @@ def load_fgsma_parameters():
     """Load FGSMA optimized parameters from JSON file"""
     global FGSMA_PARAMS
     try:
-        if os.path.exists('fgsma_optimized.json'):
-            with open('fgsma_optimized.json', 'r') as f:
+        # Use script directory as base path for better Railway compatibility
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(script_dir, 'fgsma_optimized.json')
+
+        print(f"[INFO] Looking for config at: {json_path}")
+        print(f"[INFO] Current working directory: {os.getcwd()}")
+        print(f"[INFO] Script directory: {script_dir}")
+
+        if os.path.exists(json_path):
+            with open(json_path, 'r') as f:
                 data = json.load(f)
                 FGSMA_PARAMS = data['optimal_parameters']
-            print("[INFO] Loaded FGSMA optimized parameters")
+            print("[INFO] ✓ Loaded FGSMA optimized parameters")
             print(f"[INFO] EMA Period: {FGSMA_PARAMS['ema_period']} days")
         else:
-            print("[WARNING] fgsma_optimized.json not found")
+            print(f"[ERROR] fgsma_optimized.json not found at {json_path}")
+            print(f"[ERROR] Files in directory: {os.listdir(script_dir)[:20]}")
             FGSMA_PARAMS = None
     except Exception as e:
         print(f"[ERROR] Loading FGSMA parameters: {e}")
+        import traceback
+        traceback.print_exc()
         FGSMA_PARAMS = None
 
 # ============================================================================
