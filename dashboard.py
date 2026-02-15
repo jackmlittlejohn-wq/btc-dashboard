@@ -149,10 +149,8 @@ def fetch_daily_btc_data():
     """Fetch daily BTC/USD price data using ccxt - tries multiple exchanges"""
     import ccxt
 
-    # Try multiple exchanges in order of preference
+    # Use Bitstamp only - it works reliably
     exchanges_to_try = [
-        ('kraken', 'BTC/USD', 'Kraken'),
-        ('coinbase', 'BTC-USD', 'Coinbase'),
         ('bitstamp', 'BTC/USD', 'Bitstamp')
     ]
 
@@ -1358,6 +1356,45 @@ def index():
             };
         }
 
+        function filterSignalsByTimeRange(signals) {
+            if (currentTimeRange === 'ALL' || !signals || !signals.dates) {
+                return signals;
+            }
+
+            const now = new Date();
+            let cutoffDate;
+
+            switch(currentTimeRange) {
+                case '1M':
+                    cutoffDate = new Date(now.setMonth(now.getMonth() - 1));
+                    break;
+                case '3M':
+                    cutoffDate = new Date(now.setMonth(now.getMonth() - 3));
+                    break;
+                case '1Y':
+                    cutoffDate = new Date(now.setFullYear(now.getFullYear() - 1));
+                    break;
+                default:
+                    return signals;
+            }
+
+            const filteredDates = [];
+            const filteredPrices = [];
+
+            for (let i = 0; i < signals.dates.length; i++) {
+                const signalDate = new Date(signals.dates[i]);
+                if (signalDate >= cutoffDate) {
+                    filteredDates.push(signals.dates[i]);
+                    filteredPrices.push(signals.prices[i]);
+                }
+            }
+
+            return {
+                dates: filteredDates,
+                prices: filteredPrices
+            };
+        }
+
         function toggleFaqSection(header) {
             if (window.innerWidth > 768) return; // Only work on mobile
 
@@ -1615,30 +1652,36 @@ def index():
                 showlegend: true
             });
 
-            // Buy signals (green dots)
+            // Filter buy signals by time range
             if (data.buy_signals && data.buy_signals.dates.length > 0) {
-                traces.push({
-                    type: 'scatter',
-                    mode: 'markers',
-                    x: data.buy_signals.dates,
-                    y: data.buy_signals.prices,
-                    name: `Buy (${data.buy_signals.dates.length})`,
-                    marker: {color: '#10b981', size: 6, opacity: 0.6},
-                    showlegend: true
-                });
+                const filteredBuys = filterSignalsByTimeRange(data.buy_signals);
+                if (filteredBuys.dates.length > 0) {
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'markers',
+                        x: filteredBuys.dates,
+                        y: filteredBuys.prices,
+                        name: `Buy (${filteredBuys.dates.length})`,
+                        marker: {color: '#10b981', size: 6, opacity: 0.6},
+                        showlegend: true
+                    });
+                }
             }
 
-            // Sell signals (red dots)
+            // Filter sell signals by time range
             if (data.sell_signals && data.sell_signals.dates.length > 0) {
-                traces.push({
-                    type: 'scatter',
-                    mode: 'markers',
-                    x: data.sell_signals.dates,
-                    y: data.sell_signals.prices,
-                    name: `Sell (${data.sell_signals.dates.length})`,
-                    marker: {color: '#ef4444', size: 6, opacity: 0.6},
-                    showlegend: true
-                });
+                const filteredSells = filterSignalsByTimeRange(data.sell_signals);
+                if (filteredSells.dates.length > 0) {
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'markers',
+                        x: filteredSells.dates,
+                        y: filteredSells.prices,
+                        name: `Sell (${filteredSells.dates.length})`,
+                        marker: {color: '#ef4444', size: 6, opacity: 0.6},
+                        showlegend: true
+                    });
+                }
             }
 
             const layout = {
