@@ -144,86 +144,54 @@ def combine_signals(fg_signal, sma_signal):
 # DATA FETCHING
 # ============================================================================
 
-def fetch_recent_data_coingecko(days=90):
-    """Fetch recent Bitcoin OHLC data from CoinGecko API (free, no API key needed)"""
+def fetch_daily_btc_data():
+    """Fetch daily BTC/USD price data using yfinance with Railway compatibility"""
     try:
-        print(f"[INFO] Fetching last {days} days OHLC from CoinGecko...")
-        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/ohlc"
-        params = {'vs_currency': 'usd', 'days': days}
-        response = requests.get(url, params=params, timeout=10)
+        import yfinance as yf
+        print("[INFO] Fetching Bitcoin data from Yahoo Finance...")
 
-        if response.status_code == 200:
-            data = response.json()
+        # Create a session with proper headers to avoid being blocked
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
 
-            if data and len(data) > 0:
-                # CoinGecko OHLC format: [timestamp, open, high, low, close]
-                df_recent = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close'])
-                df_recent['time'] = pd.to_datetime(df_recent['timestamp'], unit='ms').dt.tz_localize(None)
-                df_recent['volume'] = 0  # Not provided by OHLC endpoint
+        # Fetch data with session and increased timeout
+        btc = yf.Ticker("BTC-USD", session=session)
 
-                # Reorder columns to match historical data format
-                df_recent = df_recent[['time', 'open', 'high', 'low', 'close', 'volume']]
+        # Try multiple times with exponential backoff
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                print(f"[INFO] Attempt {attempt + 1}/{max_retries}...")
+                df = btc.history(start="2015-01-01", interval="1d", timeout=30)
 
-                print(f"[OK] Fetched {len(df_recent)} days of OHLC data from CoinGecko")
-                print(f"[OK] Date range: {df_recent['time'].iloc[0].strftime('%Y-%m-%d')} to {df_recent['time'].iloc[-1].strftime('%Y-%m-%d')}")
-                return df_recent
+                if df is not None and len(df) > 1400:
+                    print(f"[OK] Fetched {len(df)} days of data from Yahoo Finance")
+                    df = df.reset_index()
+                    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
+                    df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
+                                             'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+                    df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
+                    print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
+                    return df
+                else:
+                    print(f"[WARNING] Insufficient data on attempt {attempt + 1}")
 
-        print(f"[WARNING] CoinGecko returned status {response.status_code}")
+            except Exception as e:
+                print(f"[WARNING] Attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
+                    print(f"[INFO] Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+
+        print("[ERROR] All yfinance attempts failed")
         return None
+
     except Exception as e:
-        print(f"[WARNING] CoinGecko API failed: {e}")
+        print(f"[ERROR] BTC data fetch failed: {e}")
         import traceback
         traceback.print_exc()
-        return None
-
-def fetch_daily_btc_data():
-    """Fetch daily BTC/USD price data: historical baseline + live updates"""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, 'btc_historical_data.csv')
-
-    # Load historical baseline from CSV
-    df_historical = None
-    try:
-        if os.path.exists(csv_path):
-            print(f"[INFO] Loading historical baseline from CSV...")
-            df_historical = pd.read_csv(csv_path, index_col=0, parse_dates=True)
-            df_historical = df_historical.reset_index()
-            df_historical['Date'] = pd.to_datetime(df_historical['Date']).dt.tz_localize(None)
-            df_historical = df_historical.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
-                                     'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-            df_historical = df_historical[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
-            print(f"[OK] Loaded {len(df_historical)} days of historical data")
-    except Exception as e:
-        print(f"[WARNING] Could not load CSV baseline: {e}")
-
-    # Fetch recent live data from CoinGecko (30 days = daily candles, 90 days = 4-day candles)
-    df_recent = fetch_recent_data_coingecko(days=30)
-
-    # Combine historical + recent
-    if df_historical is not None and df_recent is not None:
-        # Remove overlap: keep historical up to 30 days ago, then append recent
-        cutoff_date = df_recent['time'].min() - timedelta(days=1)
-        df_historical_filtered = df_historical[df_historical['time'] <= cutoff_date]
-
-        # Combine
-        df = pd.concat([df_historical_filtered, df_recent], ignore_index=True)
-        df = df.drop_duplicates(subset=['time'], keep='last')
-        df = df.sort_values('time').reset_index(drop=True)
-
-        print(f"[OK] Combined dataset: {len(df)} days total (historical + live)")
-        print(f"[OK] Latest data: {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
-        return df
-
-    elif df_recent is not None:
-        print(f"[WARNING] Using CoinGecko data only ({len(df_recent)} days)")
-        return df_recent
-
-    elif df_historical is not None:
-        print(f"[WARNING] Using cached data only (may be stale)")
-        return df_historical
-
-    else:
-        print("[ERROR] No data source available!")
         return None
 
 def calculate_200w_sma_from_daily(daily_df):
