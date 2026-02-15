@@ -1,23 +1,18 @@
-const CACHE_NAME = 'btc-dashboard-v7';
-const urlsToCache = [
-  '/',
-  '/static/manifest.json',
-  '/static/icon-192.png',
-  '/static/icon-512.png'
-];
-
-// Install event - cache resources
+// SELF-DESTRUCT: Clear all caches and unregister
 self.addEventListener('install', event => {
-  console.log('[Service Worker] Installing...');
+  console.log('[Service Worker] Self-destructing...');
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('[Service Worker] Caching app shell');
-        return cache.addAll(urlsToCache);
-      })
-      .catch(err => {
-        console.log('[Service Worker] Cache failed:', err);
-      })
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          console.log('[Service Worker] Deleting cache:', cacheName);
+          return caches.delete(cacheName);
+        })
+      );
+    }).then(() => {
+      console.log('[Service Worker] All caches cleared');
+      return self.registration.unregister();
+    })
   );
   self.skipWaiting();
 });

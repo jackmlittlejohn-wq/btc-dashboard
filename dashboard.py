@@ -2232,16 +2232,22 @@ def index():
             }, 300);
         });
 
-        // Register Service Worker for PWA functionality
+        // Unregister all service workers and clear caches
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-                navigator.serviceWorker.register('/service-worker.js')
-                    .then(function(registration) {
-                        console.log('[PWA] Service Worker registered successfully:', registration.scope);
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                    registration.unregister();
+                    console.log('[PWA] Service Worker unregistered');
+                }
+            });
+            // Clear all caches
+            caches.keys().then(function(cacheNames) {
+                return Promise.all(
+                    cacheNames.map(function(cacheName) {
+                        console.log('[PWA] Deleting cache:', cacheName);
+                        return caches.delete(cacheName);
                     })
-                    .catch(function(error) {
-                        console.log('[PWA] Service Worker registration failed:', error);
-                    });
+                );
             });
         }
 
