@@ -1326,27 +1326,33 @@ def index():
             }
         }
 
+        function getCutoffDate() {
+            if (currentTimeRange === 'ALL') return null;
+
+            const now = new Date();
+            const cutoff = new Date(now);
+
+            switch(currentTimeRange) {
+                case '1M':
+                    cutoff.setMonth(cutoff.getMonth() - 1);
+                    break;
+                case '3M':
+                    cutoff.setMonth(cutoff.getMonth() - 3);
+                    break;
+                case '1Y':
+                    cutoff.setFullYear(cutoff.getFullYear() - 1);
+                    break;
+            }
+            return cutoff;
+        }
+
         function getFilteredData(data) {
             if (!data || !data.daily || currentTimeRange === 'ALL') {
                 return data;
             }
 
-            const now = new Date();
-            let cutoffDate;
-
-            switch(currentTimeRange) {
-                case '1M':
-                    cutoffDate = new Date(now.setMonth(now.getMonth() - 1));
-                    break;
-                case '3M':
-                    cutoffDate = new Date(now.setMonth(now.getMonth() - 3));
-                    break;
-                case '1Y':
-                    cutoffDate = new Date(now.setFullYear(now.getFullYear() - 1));
-                    break;
-                default:
-                    return data;
-            }
+            const cutoffDate = getCutoffDate();
+            if (!cutoffDate) return data;
 
             const filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
 
@@ -1361,22 +1367,8 @@ def index():
                 return signals;
             }
 
-            const now = new Date();
-            let cutoffDate;
-
-            switch(currentTimeRange) {
-                case '1M':
-                    cutoffDate = new Date(now.setMonth(now.getMonth() - 1));
-                    break;
-                case '3M':
-                    cutoffDate = new Date(now.setMonth(now.getMonth() - 3));
-                    break;
-                case '1Y':
-                    cutoffDate = new Date(now.setFullYear(now.getFullYear() - 1));
-                    break;
-                default:
-                    return signals;
-            }
+            const cutoffDate = getCutoffDate();
+            if (!cutoffDate) return signals;
 
             const filteredDates = [];
             const filteredPrices = [];
