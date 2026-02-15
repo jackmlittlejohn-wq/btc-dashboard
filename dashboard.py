@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template_string, send_from_directory, send_file
+from flask_compress import Compress
 import threading
 import webbrowser
 import time
@@ -24,8 +25,9 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
+Compress(app)  # Enable gzip compression
 
-DATA_CACHE = {'chart_data': None, 'last_update': None, 'cache_duration': 2}
+DATA_CACHE = {'chart_data': None, 'last_update': None, 'cache_duration': 300}  # 5 minutes
 SIGNALS_CACHE = {'buy_dates': None, 'buy_prices': None, 'sell_dates': None, 'sell_prices': None, 'last_update': None}
 FGSMA_PARAMS = None
 
@@ -426,7 +428,9 @@ def api_data():
     if (DATA_CACHE['chart_data'] and DATA_CACHE['last_update'] and
         now - DATA_CACHE['last_update'] < DATA_CACHE['cache_duration']):
         print("[INFO] Serving from cache")
-        return jsonify(DATA_CACHE['chart_data'])
+        response = jsonify(DATA_CACHE['chart_data'])
+        response.headers['Cache-Control'] = 'public, max-age=180'  # Cache for 3 minutes
+        return response
 
     print("[INFO] Fetching fresh data")
     data = prepare_all_data()
@@ -517,7 +521,10 @@ def api_data():
 
     DATA_CACHE['chart_data'] = response
     DATA_CACHE['last_update'] = now
-    return jsonify(response)
+
+    json_response = jsonify(response)
+    json_response.headers['Cache-Control'] = 'public, max-age=180'  # Cache for 3 minutes
+    return json_response
 
 # ============================================================================
 # FRONTEND
