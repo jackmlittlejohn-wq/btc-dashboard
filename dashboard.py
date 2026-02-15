@@ -646,6 +646,31 @@ def index():
             border-color: #10b981;
             color: #ffffff;
         }
+
+        .visibility-toggles {
+            display: flex;
+            gap: 16px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .visibility-toggles label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+        }
+        .visibility-toggles input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
         .chart-wrapper {
             border-radius: 12px;
             margin-bottom: 20px;
@@ -1190,6 +1215,12 @@ def index():
                 <button class="time-range-btn" onclick="setTimeRange('1Y')">1Y</button>
                 <button class="time-range-btn active" onclick="setTimeRange('ALL')">All Time</button>
             </div>
+            <div class="visibility-toggles">
+                <label><input type="checkbox" id="vis-price" checked onchange="toggleVisibility('price')"> Price</label>
+                <label><input type="checkbox" id="vis-sma" checked onchange="toggleVisibility('sma')"> 200W SMA</label>
+                <label><input type="checkbox" id="vis-fg" onchange="toggleVisibility('fg')"> F&G</label>
+                <label><input type="checkbox" id="vis-volume" checked onchange="toggleVisibility('volume')"> Volume</label>
+            </div>
 
             <div class="chart-wrapper" id="chart"></div>
             <div class="chart-wrapper hidden" id="signal-chart"></div>
@@ -1257,6 +1288,10 @@ def index():
         let currentSignalLayout = null;
         let currentChartView = 'price';
         let currentTimeRange = 'ALL';
+        let showPrice = true;
+        let showSMA = true;
+        let showFG = false;  // Off by default
+        let showVolume = true;
 
         function setTimeRange(range) {
             currentTimeRange = range;
@@ -1270,9 +1305,25 @@ def index():
             // Re-render current chart with new time range
             if (chartData) {
                 if (currentChartView === 'price') {
-                    renderPriceChart();
+                    renderChart(chartData);
                 } else if (currentChartView === 'signals') {
-                    renderSignalsChart();
+                    renderSignalChart(chartData);
+                }
+            }
+        }
+
+        function toggleVisibility(element) {
+            if (element === 'price') showPrice = document.getElementById('vis-price').checked;
+            if (element === 'sma') showSMA = document.getElementById('vis-sma').checked;
+            if (element === 'fg') showFG = document.getElementById('vis-fg').checked;
+            if (element === 'volume') showVolume = document.getElementById('vis-volume').checked;
+
+            // Re-render current chart
+            if (chartData) {
+                if (currentChartView === 'price') {
+                    renderChart(chartData);
+                } else if (currentChartView === 'signals') {
+                    renderSignalChart(chartData);
                 }
             }
         }
@@ -1401,9 +1452,6 @@ def index():
                 data = getFilteredData(data);
 
                 const traces = [];
-                const showPrice = true;  // Always show price
-                const showSMA = true;    // Always show 200W SMA
-                const showFG = true;     // Always show Fear & Greed
                 const useLogScale = false;  // Linear scale by default
 
             if (showPrice && data.daily) {
@@ -1420,7 +1468,9 @@ def index():
                     yaxis: 'y',
                     showlegend: true
                 });
+            }
 
+            if (showVolume && data.daily) {
                 traces.push({
                     type: 'bar',
                     x: data.daily.map(d => d.time),
@@ -1484,35 +1534,37 @@ def index():
                     yanchor: 'top'
                 },
                 hovermode: 'x unified',
-                dragmode: 'zoom',
+                dragmode: false,
                 xaxis: {
                     type: 'date',
                     gridcolor: '#e5e7eb',
-                    fixedrange: false,
-                    rangeslider: {visible: false},
-                    range: [data.daily[0].time, futureDate.toISOString().split('T')[0]]
+                    fixedrange: true,
+                    autorange: true,
+                    rangeslider: {visible: false}
                 },
                 yaxis: {
                     title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
                     gridcolor: '#e5e7eb',
                     side: 'left',
                     domain: [0.25, 1],
-                    fixedrange: false,
+                    fixedrange: true,
+                    autorange: true,
                     type: useLogScale ? 'log' : 'linear'
                 },
                 yaxis2: {
                     gridcolor: 'transparent',
                     showticklabels: false,
                     domain: [0, 0.2],
-                    fixedrange: false
+                    fixedrange: true,
+                    autorange: true
                 },
                 yaxis3: {
                     title: {text: 'Fear & Greed', font: {size: 12, color: '#6b7280'}},
                     gridcolor: 'transparent',
                     side: 'right',
                     overlaying: 'y',
-                    range: [0, 100],
-                    fixedrange: false
+                    fixedrange: true,
+                    autorange: true
                 },
                 margin: {l: 60, r: 80, t: 60, b: 60}
             };
@@ -1521,10 +1573,7 @@ def index():
                 responsive: true,
                 displayModeBar: false,
                 displaylogo: false,
-                scrollZoom: false,
-                doubleClick: false,
-                showTips: false,
-                staticPlot: false
+                staticPlot: true  // Fully static - no zoom/pan
             };
 
             // Preserve zoom/pan state on refresh, but reset when toggling scale
@@ -1609,16 +1658,18 @@ def index():
                     yanchor: 'top'
                 },
                 hovermode: 'closest',
-                dragmode: 'zoom',
+                dragmode: false,
                 xaxis: {
                     type: 'date',
                     gridcolor: '#e5e7eb',
-                    fixedrange: false
+                    fixedrange: true,
+                    autorange: true
                 },
                 yaxis: {
                     title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
                     gridcolor: '#e5e7eb',
-                    fixedrange: false,
+                    fixedrange: true,
+                    autorange: true,
                     type: useLogScale ? 'log' : 'linear'
                 },
                 margin: {l: 60, r: 40, t: 60, b: 60}
@@ -1628,10 +1679,7 @@ def index():
                 responsive: true,
                 displayModeBar: false,
                 displaylogo: false,
-                scrollZoom: false,
-                doubleClick: false,
-                showTips: false,
-                staticPlot: false
+                staticPlot: true  // Fully static - no zoom/pan
             };
 
             // Preserve zoom/pan state, but reset when toggling scale
