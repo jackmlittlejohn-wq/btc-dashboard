@@ -520,6 +520,7 @@ def api_data():
 
 @app.route('/')
 def index():
+    print("[INFO] Main dashboard route / called")
     html = '''
 <!DOCTYPE html>
 <html>
