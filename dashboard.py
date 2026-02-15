@@ -175,8 +175,9 @@ def fetch_daily_btc_data():
 
             print(f"[INFO] Fetching historical data from {exchange_name}...")
             batch_count = 0
+            max_batches = 10  # Enough for 2016 to 2026 (10 years = ~3650 days, need 8 batches)
 
-            while batch_count < 6:  # Max 6 batches (~3000 days)
+            while batch_count < max_batches:
                 batch_count += 1
                 print(f"[INFO] Batch {batch_count}...")
 
@@ -184,19 +185,25 @@ def fetch_daily_btc_data():
                     candles = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
 
                     if not candles:
+                        print(f"[INFO] No more data available")
                         break
 
                     all_candles.extend(candles)
 
+                    # Check if we got all available data (less than requested)
                     if len(candles) < limit:
-                        break  # Got all available data
+                        print(f"[INFO] Got final batch with {len(candles)} candles")
+                        break
 
+                    # Move to next batch
                     since = candles[-1][0] + 86400000  # Add 1 day in ms
-                    time.sleep(1)  # Rate limiting
+                    time.sleep(0.5)  # Rate limiting
 
                 except Exception as e:
                     print(f"[WARNING] Batch {batch_count} from {exchange_name} failed: {e}")
                     break
+
+            print(f"[INFO] Total candles fetched: {len(all_candles)}")
 
             if len(all_candles) > 1400:  # Need at least 1400 days for 200W SMA
                 # Convert to DataFrame
@@ -1363,10 +1370,6 @@ def index():
         }
 
         function filterSignalsByTimeRange(signals) {
-            // TEMPORARILY DISABLED - return all signals
-            return signals;
-
-            /*
             if (currentTimeRange === 'ALL' || !signals || !signals.dates) {
                 return signals;
             }
@@ -1389,7 +1392,6 @@ def index():
                 dates: filteredDates,
                 prices: filteredPrices
             };
-            */
         }
 
         function toggleFaqSection(header) {
@@ -1667,10 +1669,7 @@ def index():
 
             // Filter sell signals by time range
             if (data.sell_signals && data.sell_signals.dates.length > 0) {
-                console.log('[DEBUG] Total sell signals from backend:', data.sell_signals.dates.length);
-                console.log('[DEBUG] Current time range:', currentTimeRange);
                 const filteredSells = filterSignalsByTimeRange(data.sell_signals);
-                console.log('[DEBUG] Filtered sell signals:', filteredSells.dates.length);
                 if (filteredSells.dates.length > 0) {
                     traces.push({
                         type: 'scatter',
