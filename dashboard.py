@@ -145,82 +145,82 @@ def combine_signals(fg_signal, sma_signal):
 # ============================================================================
 
 def fetch_daily_btc_data():
-    """Fetch daily BTC/USD price data using ccxt (Binance) - reliable on Railway"""
-    try:
-        import ccxt
-        print("[INFO] Fetching Bitcoin data from Binance...")
+    """Fetch daily BTC/USD price data using ccxt - tries multiple exchanges"""
+    import ccxt
 
-        # Initialize Binance exchange (no API key needed for public data)
-        exchange = ccxt.binance({
-            'enableRateLimit': True,
-            'options': {'defaultType': 'spot'}
-        })
+    # Try multiple exchanges in order of preference
+    exchanges_to_try = [
+        ('kraken', 'BTC/USD', 'Kraken'),
+        ('coinbase', 'BTC-USD', 'Coinbase'),
+        ('bitstamp', 'BTC/USD', 'Bitstamp')
+    ]
 
-        # Fetch historical daily OHLCV data
-        # ccxt limit is typically 1000 candles per request, so fetch multiple times
-        symbol = 'BTC/USDT'
-        timeframe = '1d'
-        limit = 1000
+    for exchange_id, symbol, exchange_name in exchanges_to_try:
+        try:
+            print(f"[INFO] Attempting to fetch Bitcoin data from {exchange_name}...")
 
-        all_candles = []
-        since = exchange.parse8601('2015-01-01T00:00:00Z')
+            # Initialize exchange
+            exchange_class = getattr(ccxt, exchange_id)
+            exchange = exchange_class({
+                'enableRateLimit': True,
+                'timeout': 30000
+            })
 
-        print("[INFO] Fetching historical data in batches...")
-        batch_count = 0
+            # Fetch historical daily OHLCV data in batches
+            timeframe = '1d'
+            limit = 720  # ~2 years per batch
 
-        while True:
-            batch_count += 1
-            print(f"[INFO] Fetching batch {batch_count}...")
+            all_candles = []
+            since = exchange.parse8601('2015-01-01T00:00:00Z')
 
-            try:
-                candles = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+            print(f"[INFO] Fetching historical data from {exchange_name}...")
+            batch_count = 0
 
-                if not candles:
+            while batch_count < 10:  # Max 10 batches
+                batch_count += 1
+                print(f"[INFO] Batch {batch_count}...")
+
+                try:
+                    candles = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+
+                    if not candles:
+                        break
+
+                    all_candles.extend(candles)
+
+                    if len(candles) < limit:
+                        break  # Got all available data
+
+                    since = candles[-1][0] + 86400000  # Add 1 day in ms
+                    time.sleep(1)  # Rate limiting
+
+                except Exception as e:
+                    print(f"[WARNING] Batch {batch_count} from {exchange_name} failed: {e}")
                     break
 
-                all_candles.extend(candles)
+            if len(all_candles) > 1400:  # Need at least 1400 days for 200W SMA
+                # Convert to DataFrame
+                df = pd.DataFrame(all_candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['time'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize(None)
+                df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
 
-                # Update since to the timestamp of the last candle
-                if len(candles) < limit:
-                    # Got all available data
-                    break
+                # Remove duplicates and sort
+                df = df.drop_duplicates(subset=['time'], keep='last')
+                df = df.sort_values('time').reset_index(drop=True)
 
-                since = candles[-1][0] + 86400000  # Add 1 day in milliseconds
+                print(f"[OK] ✓ Fetched {len(df)} days from {exchange_name}")
+                print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
+                return df
+            else:
+                print(f"[WARNING] {exchange_name} returned insufficient data ({len(all_candles)} days)")
 
-                # Rate limiting
-                time.sleep(0.5)
+        except Exception as e:
+            print(f"[WARNING] {exchange_name} failed: {str(e)[:200]}")
+            continue
 
-                # Safety limit: max 10 batches (10000 days)
-                if batch_count >= 10:
-                    break
-
-            except Exception as e:
-                print(f"[WARNING] Batch {batch_count} failed: {e}")
-                break
-
-        if not all_candles:
-            print("[ERROR] No data fetched from Binance")
-            return None
-
-        # Convert to DataFrame
-        df = pd.DataFrame(all_candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['time'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize(None)
-        df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
-
-        # Remove duplicates and sort
-        df = df.drop_duplicates(subset=['time'], keep='last')
-        df = df.sort_values('time').reset_index(drop=True)
-
-        print(f"[OK] Fetched {len(df)} days of data from Binance")
-        print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
-
-        return df
-
-    except Exception as e:
-        print(f"[ERROR] Binance data fetch failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    # All exchanges failed
+    print("[ERROR] All exchange attempts failed")
+    return None
 
 def calculate_200w_sma_from_daily(daily_df):
     """Calculate 200-week SMA from daily data (1400 day rolling average)"""
