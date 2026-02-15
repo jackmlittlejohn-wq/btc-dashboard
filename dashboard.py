@@ -145,19 +145,50 @@ def combine_signals(fg_signal, sma_signal):
 # ============================================================================
 
 def fetch_daily_btc_data():
-    """Fetch daily BTC/USD price data"""
+    """Fetch daily BTC/USD price data with CSV fallback"""
+    # Try live API first
     try:
         import yfinance as yf
+        print("[INFO] Attempting to fetch live data from Yahoo Finance...")
         btc = yf.Ticker("BTC-USD")
         df = btc.history(start="2015-01-01", interval="1d")
-        df = df.reset_index()
-        df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-        df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
-                                 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-        df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
-        return df
+
+        if df is not None and len(df) > 1400:
+            print(f"[OK] Fetched {len(df)} days of live data")
+            df = df.reset_index()
+            df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
+            df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
+                                     'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+            df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
+            return df
+        else:
+            print("[WARNING] Live API returned insufficient data, trying CSV fallback...")
     except Exception as e:
-        print(f"[ERROR] BTC data: {e}")
+        print(f"[WARNING] Live API failed: {e}")
+        print("[INFO] Falling back to cached data...")
+
+    # Fallback to cached CSV
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        csv_path = os.path.join(script_dir, 'btc_historical_data.csv')
+
+        if os.path.exists(csv_path):
+            print(f"[INFO] Loading cached data from {csv_path}")
+            df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+            df = df.reset_index()
+            df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
+            df = df.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high',
+                                     'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+            df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
+            print(f"[OK] Loaded {len(df)} days from cached data")
+            return df
+        else:
+            print(f"[ERROR] Cached data not found at {csv_path}")
+            return None
+    except Exception as e:
+        print(f"[ERROR] Failed to load cached data: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def calculate_200w_sma_from_daily(daily_df):
