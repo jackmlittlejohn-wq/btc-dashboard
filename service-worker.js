@@ -1,4 +1,4 @@
-const CACHE_NAME = 'btc-dashboard-v3';
+const CACHE_NAME = 'btc-dashboard-v4';
 const urlsToCache = [
   '/',
   '/static/manifest.json',

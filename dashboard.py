@@ -687,7 +687,7 @@ def index():
         }
         .data-value.green { color: #10b981; }
         .data-value.red { color: #ef4444; }
-        .data-value.orange { color: #f59e0b; }
+        .data-value.orange { color: #000000; }
 
         /* Price flash animations */
         @keyframes flash-green-anim {
@@ -923,7 +923,8 @@ def index():
 
             .container {
                 flex-direction: column;
-                height: 100vh;
+                min-height: 100vh;
+                height: auto;
                 display: flex;
             }
 
@@ -964,27 +965,26 @@ def index():
             }
 
             .fgsma-subsignals {
-                display: flex;
-                flex-direction: column;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
                 gap: 8px;
             }
 
             .fgsma-subsignal {
                 padding: 12px;
                 border-radius: 8px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
+                text-align: center;
             }
 
             .fgsma-subsignal-label {
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 600;
                 text-transform: uppercase;
+                margin-bottom: 4px;
             }
 
             .fgsma-subsignal-value {
-                font-size: 20px;
+                font-size: 18px;
                 font-weight: 700;
             }
 
@@ -1216,16 +1216,12 @@ def index():
                 <button class="chart-tab active" onclick="switchChart('price')">Price Chart</button>
                 <button class="chart-tab" onclick="switchChart('signals')">Historical Signals</button>
                 <button class="chart-tab" onclick="switchChart('faq')">FAQ</button>
-                <div class="log-toggle" id="log-toggle">
-                    <input type="checkbox" id="toggle-log">
-                    <label for="toggle-log">Log Scale</label>
-                </div>
             </div>
 
             <div class="chart-controls" id="price-controls">
                 <div class="checkbox-group">
                     <input type="checkbox" id="toggle-price" checked>
-                    <label for="toggle-price">BTC Price</label>
+                    <label for="toggle-price">Price</label>
                 </div>
                 <div class="checkbox-group">
                     <input type="checkbox" id="toggle-sma" checked>
@@ -1233,7 +1229,11 @@ def index():
                 </div>
                 <div class="checkbox-group">
                     <input type="checkbox" id="toggle-fg">
-                    <label for="toggle-fg">Fear & Greed</label>
+                    <label for="toggle-fg">F&G</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="toggle-log">
+                    <label for="toggle-log">Log</label>
                 </div>
             </div>
 
@@ -2193,8 +2193,8 @@ def index():
 
         loadToggleStates();
         loadData();
-        // Refresh every 2 seconds for rapid price updates
-        setInterval(loadData, 2000);
+        // Refresh every 1 second for real-time price updates
+        setInterval(loadData, 1000);
 
         // Handle window resize for responsive charts
         let resizeTimer;

@@ -5,28 +5,28 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 
 def create_icon(size, output_path):
-    """Create minimalist JL icon with gold text on black background"""
+    """Create eccentric JL icon with stylized gold text on black background"""
     # Create image with black background
     img = Image.new('RGB', (size, size), color='#000000')
     draw = ImageDraw.Draw(img)
 
-    # Try to use bold font for better effect
+    # Try to use bold italic font for flair
     try:
-        font_size = int(size * 0.5)  # 50% of icon size
+        font_size = int(size * 0.55)  # Larger text
         try:
-            # Try Arial Black or Bold first
-            font = ImageFont.truetype("arialbd.ttf", font_size)
+            # Try Arial Black or Bold Italic first for more flair
+            font = ImageFont.truetype("BRADHITC.TTF", font_size)  # Bradley Hand
         except:
             try:
-                font = ImageFont.truetype("Arial-Bold.ttf", font_size)
+                font = ImageFont.truetype("arialbd.ttf", font_size)  # Arial Bold
             except:
                 try:
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+                    font = ImageFont.truetype("Arial-BoldMT.ttf", font_size)
                 except:
                     try:
-                        font = ImageFont.truetype("arial.ttf", font_size)
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
                     except:
-                        font = ImageFont.load_default()
+                        font = ImageFont.truetype("arial.ttf", font_size)
 
         # Text to draw
         text = "JL"
@@ -40,16 +40,39 @@ def create_icon(size, output_path):
         x = (size - text_width) // 2
         y = (size - text_height) // 2 - bbox[1]
 
-        # Draw gold text with subtle shadow for depth
-        shadow_offset = size // 40  # Small shadow offset
-        # Shadow (darker gold)
-        draw.text((x + shadow_offset, y + shadow_offset), text, fill='#996515', font=font)
-        # Main text (bright gold)
+        # Multi-layer shadow for dramatic effect
+        shadow_layers = [
+            (8, '#1a0f00'),  # Deepest shadow (dark brown)
+            (6, '#4d2600'),  # Mid shadow (brown)
+            (4, '#805000'),  # Light shadow (dark gold)
+            (2, '#b38600'),  # Glow layer (medium gold)
+        ]
+
+        for offset, color in shadow_layers:
+            offset_scaled = (size // 60) * offset
+            draw.text((x + offset_scaled, y + offset_scaled), text, fill=color, font=font)
+
+        # Main gold gradient effect (simulate with multiple colors)
+        # Highlight (bright gold)
+        draw.text((x - 1, y - 1), text, fill='#FFED4E', font=font)  # Light gold highlight
+        # Main text (rich gold)
         draw.text((x, y), text, fill='#FFD700', font=font)
+
+        # Add sparkle effect with small accents
+        accent_offset = size // 6
+        accent_size = size // 30
+        # Top right sparkle
+        draw.ellipse([x + text_width - accent_offset, y,
+                     x + text_width - accent_offset + accent_size, y + accent_size],
+                    fill='#FFFFFF')
+        # Bottom left sparkle
+        draw.ellipse([x + accent_offset//2, y + text_height - accent_size,
+                     x + accent_offset//2 + accent_size, y + text_height],
+                    fill='#FFED4E')
 
     except Exception as e:
         print(f"Could not add text: {e}")
-        # Simple fallback
+        # Fallback with basic styling
         draw.text((size//3, size//3), "JL", fill='#FFD700')
 
     # Save image
