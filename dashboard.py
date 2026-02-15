@@ -17,6 +17,7 @@ import webbrowser
 import time
 import json
 import os
+import gc
 
 if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -168,15 +169,16 @@ def fetch_daily_btc_data():
 
             # Fetch historical daily OHLCV data in batches
             timeframe = '1d'
-            limit = 720  # ~2 years per batch
+            limit = 500
 
             all_candles = []
-            since = exchange.parse8601('2015-01-01T00:00:00Z')
+            # Start from 2018 instead of 2015 to reduce memory
+            since = exchange.parse8601('2018-01-01T00:00:00Z')
 
             print(f"[INFO] Fetching historical data from {exchange_name}...")
             batch_count = 0
 
-            while batch_count < 10:  # Max 10 batches
+            while batch_count < 6:  # Max 6 batches (~3000 days)
                 batch_count += 1
                 print(f"[INFO] Batch {batch_count}...")
 
@@ -210,6 +212,7 @@ def fetch_daily_btc_data():
 
                 print(f"[OK] ✓ Fetched {len(df)} days from {exchange_name}")
                 print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
+                gc.collect()  # Free memory
                 return df
             else:
                 print(f"[WARNING] {exchange_name} returned insufficient data ({len(all_candles)} days)")
