@@ -10,23 +10,26 @@ def create_icon(size, output_path):
     img = Image.new('RGB', (size, size), color='#000000')
     draw = ImageDraw.Draw(img)
 
-    # Try to use bold italic font for flair
+    # Try to use extra bold font for maximum impact
     try:
-        font_size = int(size * 0.55)  # Larger text
+        font_size = int(size * 0.6)  # Even larger text
         try:
-            # Try Arial Black or Bold Italic first for more flair
-            font = ImageFont.truetype("BRADHITC.TTF", font_size)  # Bradley Hand
+            # Try Impact or Arial Black first for maximum boldness
+            font = ImageFont.truetype("impact.ttf", font_size)  # Impact - very bold
         except:
             try:
-                font = ImageFont.truetype("arialbd.ttf", font_size)  # Arial Bold
+                font = ImageFont.truetype("Impact.ttf", font_size)
             except:
                 try:
-                    font = ImageFont.truetype("Arial-BoldMT.ttf", font_size)
+                    font = ImageFont.truetype("ariblk.ttf", font_size)  # Arial Black
                 except:
                     try:
-                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+                        font = ImageFont.truetype("arialbd.ttf", font_size)  # Arial Bold
                     except:
-                        font = ImageFont.truetype("arial.ttf", font_size)
+                        try:
+                            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+                        except:
+                            font = ImageFont.truetype("arial.ttf", font_size)
 
         # Text to draw
         text = "JL"
@@ -40,34 +43,45 @@ def create_icon(size, output_path):
         x = (size - text_width) // 2
         y = (size - text_height) // 2 - bbox[1]
 
-        # Multi-layer shadow for dramatic effect
+        # Extra bold multi-layer shadow for dramatic 3D effect
         shadow_layers = [
-            (8, '#1a0f00'),  # Deepest shadow (dark brown)
-            (6, '#4d2600'),  # Mid shadow (brown)
-            (4, '#805000'),  # Light shadow (dark gold)
-            (2, '#b38600'),  # Glow layer (medium gold)
+            (10, '#0d0700'),  # Deepest shadow (almost black)
+            (8, '#1a0f00'),   # Very deep shadow (dark brown)
+            (6, '#331a00'),   # Deep shadow (brown)
+            (5, '#4d2600'),   # Mid shadow (brown)
+            (4, '#664400'),   # Light shadow (dark gold)
+            (3, '#805000'),   # Lighter shadow (dark gold)
+            (2, '#996600'),   # Glow layer (medium gold)
+            (1, '#b38600'),   # Bright glow (medium-bright gold)
         ]
 
         for offset, color in shadow_layers:
-            offset_scaled = (size // 60) * offset
+            offset_scaled = (size // 50) * offset
             draw.text((x + offset_scaled, y + offset_scaled), text, fill=color, font=font)
 
-        # Main gold gradient effect (simulate with multiple colors)
-        # Highlight (bright gold)
-        draw.text((x - 1, y - 1), text, fill='#FFED4E', font=font)  # Light gold highlight
-        # Main text (rich gold)
+        # Main gold gradient effect with multiple layers for richness
+        # Deep gold base
+        draw.text((x + 2, y + 2), text, fill='#CC9900', font=font)
+        # Mid gold
+        draw.text((x + 1, y + 1), text, fill='#E6AC00', font=font)
+        # Bright highlight
+        draw.text((x - 1, y - 1), text, fill='#FFED4E', font=font)
+        # Main brilliant gold
         draw.text((x, y), text, fill='#FFD700', font=font)
 
-        # Add sparkle effect with small accents
-        accent_offset = size // 6
-        accent_size = size // 30
-        # Top right sparkle
-        draw.ellipse([x + text_width - accent_offset, y,
-                     x + text_width - accent_offset + accent_size, y + accent_size],
-                    fill='#FFFFFF')
+        # Add multiple sparkle effects for extra flair
+        accent_size = size // 25
+        # Top right sparkle cluster
+        sparkle_x = x + text_width - size // 8
+        draw.ellipse([sparkle_x, y, sparkle_x + accent_size, y + accent_size], fill='#FFFFFF')
+        draw.ellipse([sparkle_x + accent_size//2, y - accent_size//2,
+                     sparkle_x + accent_size + accent_size//2, y + accent_size//2], fill='#FFED4E')
         # Bottom left sparkle
-        draw.ellipse([x + accent_offset//2, y + text_height - accent_size,
-                     x + accent_offset//2 + accent_size, y + text_height],
+        draw.ellipse([x + size//10, y + text_height - accent_size,
+                     x + size//10 + accent_size, y + text_height], fill='#FFFFFF')
+        # Center sparkle
+        draw.ellipse([x + text_width//2, y + text_height//3,
+                     x + text_width//2 + accent_size//2, y + text_height//3 + accent_size//2],
                     fill='#FFED4E')
 
     except Exception as e:

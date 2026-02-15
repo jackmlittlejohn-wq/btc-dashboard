@@ -24,7 +24,7 @@ if sys.platform == 'win32':
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 
-DATA_CACHE = {'chart_data': None, 'last_update': None, 'cache_duration': 300}
+DATA_CACHE = {'chart_data': None, 'last_update': None, 'cache_duration': 2}
 SIGNALS_CACHE = {'buy_dates': None, 'buy_prices': None, 'sell_dates': None, 'sell_prices': None, 'last_update': None}
 FGSMA_PARAMS = None
 
@@ -1112,7 +1112,7 @@ def index():
             #chart, #signal-chart {
                 flex: 1 !important;
                 height: auto !important;
-                min-height: 250px !important;
+                min-height: 450px !important;
                 max-height: none !important;
             }
 
@@ -1319,7 +1319,6 @@ def index():
             const signalChart = document.getElementById('signal-chart');
             const faqContent = document.getElementById('faq-content');
             const priceControls = document.getElementById('price-controls');
-            const logToggle = document.getElementById('log-toggle');
             const tabs = document.querySelectorAll('.chart-tab');
 
             tabs.forEach(tab => tab.classList.remove('active'));
@@ -1329,7 +1328,6 @@ def index():
                 signalChart.classList.add('hidden');
                 faqContent.classList.add('hidden');
                 priceControls.classList.remove('hidden');
-                logToggle.style.display = 'flex';
                 tabs[0].classList.add('active');
                 if (chartData) {
                     setTimeout(() => Plotly.Plots.resize('chart'), 100);
@@ -1338,8 +1336,7 @@ def index():
                 priceChart.classList.add('hidden');
                 signalChart.classList.remove('hidden');
                 faqContent.classList.add('hidden');
-                priceControls.classList.add('hidden');
-                logToggle.style.display = 'flex';
+                priceControls.classList.remove('hidden');
                 tabs[1].classList.add('active');
                 if (chartData) {
                     setTimeout(() => Plotly.Plots.resize('signal-chart'), 100);
@@ -1349,7 +1346,6 @@ def index():
                 signalChart.classList.add('hidden');
                 faqContent.classList.remove('hidden');
                 priceControls.classList.add('hidden');
-                logToggle.style.display = 'none';
                 tabs[2].classList.add('active');
                 if (chartData) {
                     renderFAQ(chartData);
@@ -1516,10 +1512,19 @@ def index():
                 responsive: true,
                 displayModeBar: true,
                 displaylogo: false,
-                scrollZoom: true,
-                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-                doubleClick: 'autosize',
-                showTips: true
+                scrollZoom: false,
+                modeBarButtons: [
+                    ['zoom2d', 'pan2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']
+                ],
+                doubleClick: 'reset',
+                showTips: true,
+                toImageButtonOptions: {
+                    format: 'png',
+                    filename: 'btc_chart',
+                    height: 1000,
+                    width: 1400,
+                    scale: 1
+                }
             };
 
             // Preserve zoom/pan state on refresh, but reset when toggling scale
@@ -1620,10 +1625,19 @@ def index():
                 responsive: true,
                 displayModeBar: true,
                 displaylogo: false,
-                scrollZoom: true,
-                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-                doubleClick: 'autosize',
-                showTips: true
+                scrollZoom: false,
+                modeBarButtons: [
+                    ['zoom2d', 'pan2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']
+                ],
+                doubleClick: 'reset',
+                showTips: true,
+                toImageButtonOptions: {
+                    format: 'png',
+                    filename: 'btc_chart',
+                    height: 1000,
+                    width: 1400,
+                    scale: 1
+                }
             };
 
             // Preserve zoom/pan state, but reset when toggling scale
