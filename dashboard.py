@@ -12,7 +12,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template_string, send_from_directory, send_file
-from flask_compress import Compress
 import threading
 import webbrowser
 import time
@@ -25,7 +24,6 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
-Compress(app)  # Enable gzip compression
 
 DATA_CACHE = {'chart_data': None, 'last_update': None, 'cache_duration': 300}  # 5 minutes
 CONFIG = None
@@ -435,12 +433,50 @@ def api_data():
     # Calculate current signals
     signals = get_signals(latest_row, CONFIG)
 
+    # Generate historical buy/sell signals
+    buy_signals = {'dates': [], 'prices': []}
+    sell_signals = {'dates': [], 'prices': []}
+
+    # Calculate signals for all historical data
+    for idx, row in data['daily'].iterrows():
+        if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
+            continue
+
+        hist_signals = get_signals(row, CONFIG)
+        if hist_signals:
+            if hist_signals['action_class'] == 'buy':
+                buy_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
+                buy_signals['prices'].append(float(row['close']))
+            elif hist_signals['action_class'] == 'sell':
+                sell_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
+                sell_signals['prices'].append(float(row['close']))
+
+    # Prepare daily data for charts
+    daily_data = []
+    for idx, row in data['daily'].iterrows():
+        daily_data.append({
+            'time': row['time'].strftime('%Y-%m-%d'),
+            'open': float(row['open']),
+            'high': float(row['high']),
+            'low': float(row['low']),
+            'close': float(row['close']),
+            'volume': float(row['volume']),
+            'sma_200w': float(row['sma_200w']) if not pd.isna(row['sma_200w']) else None,
+            'ma_50w': float(row['ma_50w']) if not pd.isna(row['ma_50w']) else None,
+            'fg_index': int(row['fg_index']) if not pd.isna(row['fg_index']) else None,
+            'fg_ema': float(row['fg_ema']) if not pd.isna(row['fg_ema']) else None,
+            'rsi': float(row['rsi']) if not pd.isna(row['rsi']) else None
+        })
+
     # Prepare response
     response = {
         'current_price': float(data['current_price']) if data['current_price'] else 0,
         'timestamp': latest_row['time'].strftime('%Y-%m-%d %H:%M UTC'),
         'signals': signals,
-        'config': CONFIG
+        'config': CONFIG,
+        'daily': daily_data,
+        'buy_signals': buy_signals,
+        'sell_signals': sell_signals
     }
 
     DATA_CACHE['chart_data'] = response
@@ -459,401 +495,1284 @@ def index():
     print("[INFO] Main dashboard route / called")
     html = '''
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#1a1a2e">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>Bitcoin 4-Indicator Strategy</title>
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#000000">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="BTC Strategy">
-    <link rel="manifest" href="/static/manifest.json">
-    <title>BTC 4-Indicator Strategy</title>
+    <meta name="apple-mobile-web-app-title" content="BTC 4-Ind">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <meta name="description" content="4-Indicator trading signals for Bitcoin: 200W SMA, 50W MA, F&G, RSI">
 
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #eee;
-            padding: 1rem;
-            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #1a1a1a;
+            overflow: hidden;
         }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
+        .container { display: flex; height: 100vh; }
+        .chart-section {
+            width: 70%;
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            background: white;
+            overflow-y: auto;
         }
-
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-
-        .price {
-            font-size: 3rem;
+        .chart-title {
+            font-size: 28px;
             font-weight: 700;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 0.5rem;
+            color: #000;
+            margin-bottom: 20px;
+            letter-spacing: -0.5px;
+        }
+        .chart-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            align-items: center;
+        }
+        .chart-tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            color: #6b7280;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .chart-tab:hover {
+            color: #000;
+        }
+        .chart-tab.active {
+            color: #10b981;
+            border-bottom-color: #10b981;
+        }
+        .time-range-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            justify-content: center;
+        }
+        .time-range-btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            background: #ffffff;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #6b7280;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+        .time-range-btn:hover {
+            background: #f3f4f6;
+            border-color: #10b981;
+        }
+        .time-range-btn.active {
+            background: #10b981;
+            border-color: #10b981;
+            color: #ffffff;
         }
 
-        .timestamp {
-            color: #888;
-            font-size: 0.9rem;
+        .visibility-toggles {
+            display: flex;
+            gap: 16px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .visibility-toggles label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+        }
+        .visibility-toggles input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .chart-wrapper {
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        .chart-wrapper.hidden {
+            display: none;
+        }
+        #chart { height: 650px; }
+        #signal-chart { height: 650px; }
+        .data-panel {
+            width: 30%;
+            padding: 24px;
+            background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            border-left: 1px solid #e5e7eb;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #000;
+            margin-bottom: 12px;
+        }
+        .data-card {
+            background: #f8f9fa;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+        .data-card:hover {
+            background: #f3f4f6;
+            border-color: #d1d5db;
+        }
+        .data-label {
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+        .data-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #000;
+        }
+        .data-value.green { color: #10b981; }
+        .data-value.red { color: #ef4444; }
+        .data-value.orange { color: #000000; }
+
+        /* Price flash animations */
+        @keyframes flash-green-anim {
+            0%, 100% { color: #000; }
+            50% { color: #10b981; font-weight: 700; }
+        }
+        @keyframes flash-red-anim {
+            0%, 100% { color: #000; }
+            50% { color: #ef4444; font-weight: 700; }
+        }
+        .data-value.flash-green {
+            animation: flash-green-anim 600ms ease-in-out;
+        }
+        .data-value.flash-red {
+            animation: flash-red-anim 600ms ease-in-out;
         }
 
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: #888;
-            font-size: 1.2rem;
-        }
-
-        .error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 2px solid rgba(239, 68, 68, 0.3);
-            border-radius: 15px;
-            padding: 1.5rem;
-            text-align: center;
-            color: #ef4444;
-        }
-
-        .action-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 2rem;
-            margin-bottom: 1.5rem;
-            text-align: center;
-            border: 2px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .action {
-            font-size: 2.5rem;
-            font-weight: 800;
-            margin-bottom: 0.5rem;
-        }
-
-        .action.buy { color: #10b981; }
-        .action.sell { color: #ef4444; }
-        .action.hold { color: #f59e0b; }
-
-        .combined-score {
-            font-size: 1.5rem;
-            color: #888;
-        }
-
-        .indicators {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .indicator {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 1.5rem 1rem;
-            border: 2px solid rgba(255, 255, 255, 0.1);
+        .signal-card {
+            border: none;
+            border-radius: 16px;
+            padding: 24px;
             transition: all 0.3s ease;
         }
-
-        .indicator:hover {
-            transform: translateY(-5px);
-            border-color: rgba(255, 255, 255, 0.2);
+        .signal-card.buy {
+            background: #d1fae5;
+            color: #065f46;
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.2);
         }
-
-        .indicator-name {
-            font-size: 0.85rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 0.5rem;
+        .signal-card.sell {
+            background: #fecdd3;
+            color: #881337;
+            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.2);
         }
-
-        .indicator-value {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
+        .signal-card.hold {
+            background: #e5e7eb;
+            color: #374151;
+            box-shadow: 0 10px 30px rgba(107, 114, 128, 0.2);
         }
-
-        .signal-badge {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .signal-buy {
-            background: rgba(16, 185, 129, 0.2);
-            color: #10b981;
-        }
-
-        .signal-sell {
-            background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
-        }
-
-        .signal-neutral {
-            background: rgba(245, 158, 11, 0.2);
-            color: #f59e0b;
-        }
-
-        .weighted-signal {
-            margin-top: 0.5rem;
-            font-size: 0.8rem;
-            color: #888;
-        }
-
-        .config {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .config-title {
-            font-size: 1rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 1rem;
-        }
-
-        .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-
-        .config-item {
-            font-size: 0.85rem;
-        }
-
-        .config-label {
-            color: #888;
-            margin-bottom: 0.25rem;
-        }
-
-        .config-value {
-            color: #fff;
+        .signal-date {
+            font-size: 14px;
             font-weight: 600;
+            margin-bottom: 16px;
+            opacity: 0.9;
         }
-
-        .footer {
+        .signal-main {
             text-align: center;
-            color: #666;
-            font-size: 0.8rem;
-            margin-top: 2rem;
-            padding: 1rem;
+            margin: 20px 0;
         }
+        .signal-text {
+            font-size: 48px;
+            font-weight: 900;
+            margin-bottom: 8px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .signal-score {
+            font-size: 16px;
+            font-weight: 600;
+            opacity: 0.8;
+        }
+        .subsignals {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .subsignal {
+            background: rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .subsignal-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+            margin-bottom: 6px;
+        }
+        .subsignal-value {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .signal-strength-bar {
+            margin-top: 8px;
+            height: 4px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .signal-strength-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease, background 0.3s ease;
+        }
+        .faq-content {
+            padding: 24px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .faq-hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            padding: 40px 32px;
+            margin-bottom: 32px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .faq-hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: heroGlow 10s ease-in-out infinite;
+        }
+        @keyframes heroGlow {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-20px, -20px) scale(1.1); }
+        }
+        .faq-hero-title {
+            font-size: 32px;
+            font-weight: 800;
+            color: #ffffff;
+            margin: 0 0 16px 0;
+            text-align: center;
+            letter-spacing: -0.5px;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .faq-hero-text {
+            font-size: 16px;
+            line-height: 1.8;
+            color: rgba(255,255,255,0.95);
+            margin: 0;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .faq-hero-text strong {
+            color: #ffffff;
+            font-weight: 700;
+        }
+        .faq-section {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .faq-section-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #000;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .faq-section-content {
+            color: #374151;
+            line-height: 1.6;
+        }
+        .faq-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 12px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .faq-table th {
+            text-align: left;
+            padding: 14px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            font-weight: 600;
+            color: #ffffff;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .faq-table th:first-child {
+            border-top-left-radius: 8px;
+        }
+        .faq-table th:last-child {
+            border-top-right-radius: 8px;
+        }
+        .faq-table td {
+            padding: 12px 16px;
+            border: 1px solid #e5e7eb;
+            border-left: none;
+            border-right: none;
+            color: #374151;
+            background: #ffffff;
+            transition: background 0.2s ease;
+        }
+        .faq-table tr:hover td {
+            background: #f8f9fa;
+        }
+        .faq-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .faq-table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 8px;
+        }
+        .faq-table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 8px;
+        }
+        .loading {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .loading.hidden { display: none; }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid #e5e7eb;
+            border-top-color: #10b981;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: #6b7280; font-size: 14px; font-weight: 500; }
 
-        @media (max-width: 600px) {
-            .price {
-                font-size: 2.5rem;
+        /* MOBILE RESPONSIVE STYLES */
+        @media (max-width: 768px) {
+            body {
+                overflow-x: hidden;
+                overflow-y: auto;
             }
 
-            .action {
-                font-size: 2rem;
+            .container {
+                flex-direction: column;
+                min-height: 100vh;
+                height: auto;
+                display: flex;
             }
 
-            .indicators {
-                grid-template-columns: repeat(2, 1fr);
+            .data-panel {
+                width: 100%;
+                padding: 12px;
+                border-left: none;
+                border-bottom: 1px solid #e5e7eb;
+                flex-shrink: 0;
+                order: -1;
             }
 
-            .action-card {
-                padding: 1.5rem;
+            .section-title {
+                font-size: 15px;
+                margin-bottom: 10px;
+                font-weight: 700;
             }
 
-            .config-grid {
-                grid-template-columns: 1fr;
+            .signal-card {
+                padding: 16px;
+                margin-bottom: 12px;
+                border-radius: 12px;
+            }
+
+            .signal-date {
+                font-size: 12px;
+                margin-bottom: 8px;
+                opacity: 0.8;
+            }
+
+            .signal-text {
+                font-size: 32px;
+                font-weight: 800;
+                margin-bottom: 12px;
+                text-align: center;
+            }
+
+            .subsignals {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+
+            .subsignal {
+                padding: 12px;
+                border-radius: 8px;
+                text-align: center;
+            }
+
+            .subsignal-label {
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                margin-bottom: 4px;
+            }
+
+            .subsignal-value {
+                font-size: 18px;
+                font-weight: 700;
+            }
+
+            .data-card {
+                padding: 12px;
+                margin-bottom: 8px;
+                border-radius: 8px;
+                background: #f9fafb;
+                display: inline-block;
+                width: calc(50% - 6px);
+                margin-right: 6px;
+                vertical-align: top;
+            }
+
+            .data-card:nth-child(2n) {
+                margin-right: 0;
+            }
+
+            .data-label {
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                opacity: 0.6;
+                margin-bottom: 4px;
+            }
+
+            .data-value {
+                font-size: 20px;
+                font-weight: 800;
+            }
+
+            .chart-section {
+                width: 100%;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                padding: 8px;
+                overflow: hidden;
+            }
+
+            .chart-title {
+                display: none;
+            }
+
+            .chart-tabs {
+                display: flex;
+                gap: 4px;
+                margin-bottom: 6px;
+                flex-shrink: 0;
+            }
+
+            .chart-tab {
+                flex: 1;
+                padding: 8px 4px;
+                font-size: 12px;
+                text-align: center;
+                font-weight: 600;
+                border-radius: 6px;
+            }
+
+            .time-range-selector {
+                display: flex;
+                gap: 6px;
+                padding: 8px;
+                margin-bottom: 8px;
+                flex-shrink: 0;
+            }
+
+            .time-range-btn {
+                flex: 1;
+                padding: 10px 8px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            #chart, #signal-chart {
+                flex: 1 !important;
+                height: auto !important;
+                min-height: 600px !important;
+                max-height: none !important;
+            }
+
+            .faq-content {
+                padding: 16px;
+            }
+
+            .faq-section {
+                padding: 16px;
+                margin-bottom: 12px;
+            }
+
+            .faq-section-title {
+                font-size: 18px;
+                margin-bottom: 12px;
+            }
+
+            .faq-table {
+                font-size: 12px;
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .faq-table th,
+            .faq-table td {
+                padding: 8px;
+                white-space: nowrap;
             }
         }
     </style>
 </head>
 <body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading data...</div>
+    </div>
+
     <div class="container">
-        <div class="header">
-            <div class="price" id="price">--</div>
-            <div class="timestamp" id="timestamp">Loading...</div>
+        <div class="chart-section">
+            <h1 class="chart-title">Bitcoin 4-Indicator Strategy</h1>
+
+            <div class="chart-tabs">
+                <button class="chart-tab active" onclick="switchChart('price')">Price Chart</button>
+                <button class="chart-tab" onclick="switchChart('signals')">Historical Signals</button>
+                <button class="chart-tab" onclick="switchChart('faq')">FAQ</button>
+            </div>
+
+            <div class="time-range-selector">
+                <button class="time-range-btn" onclick="setTimeRange('1M')">1M</button>
+                <button class="time-range-btn" onclick="setTimeRange('3M')">3M</button>
+                <button class="time-range-btn" onclick="setTimeRange('1Y')">1Y</button>
+                <button class="time-range-btn active" onclick="setTimeRange('ALL')">All Time</button>
+            </div>
+            <div class="visibility-toggles">
+                <label><input type="checkbox" id="vis-price" checked onchange="toggleVisibility('price')"> Price</label>
+                <label><input type="checkbox" id="vis-sma" checked onchange="toggleVisibility('sma')"> 200W SMA</label>
+                <label><input type="checkbox" id="vis-50w" checked onchange="toggleVisibility('50w')"> 50W MA</label>
+                <label><input type="checkbox" id="vis-fg" onchange="toggleVisibility('fg')"> F&G</label>
+                <label><input type="checkbox" id="vis-rsi" onchange="toggleVisibility('rsi')"> RSI</label>
+                <label><input type="checkbox" id="vis-volume" checked onchange="toggleVisibility('volume')"> Volume</label>
+            </div>
+
+            <div class="chart-wrapper" id="chart"></div>
+            <div class="chart-wrapper hidden" id="signal-chart"></div>
+            <div class="chart-wrapper hidden" id="faq-content"></div>
         </div>
 
-        <div id="content">
-            <div class="loading">Loading data...</div>
+        <div class="data-panel">
+            <div>
+                <div class="section-title">4-Indicator Signal</div>
+                <div class="signal-card" id="signal-card">
+                    <div class="signal-date" id="signal-date">--</div>
+                    <div class="signal-main">
+                        <div class="signal-text" id="signal-text">--</div>
+                        <div class="signal-score" id="signal-score">--</div>
+                    </div>
+                    <div class="subsignals">
+                        <div class="subsignal">
+                            <div class="subsignal-label">200W SMA</div>
+                            <div class="subsignal-value" id="sig-200w">--</div>
+                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-200w-val">--</div>
+                        </div>
+                        <div class="subsignal">
+                            <div class="subsignal-label">50W MA</div>
+                            <div class="subsignal-value" id="sig-50w">--</div>
+                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-50w-val">--</div>
+                        </div>
+                        <div class="subsignal">
+                            <div class="subsignal-label">F&G EMA</div>
+                            <div class="subsignal-value" id="sig-fg">--</div>
+                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-fg-val">--</div>
+                        </div>
+                        <div class="subsignal">
+                            <div class="subsignal-label">RSI</div>
+                            <div class="subsignal-value" id="sig-rsi">--</div>
+                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-rsi-val">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="section-title">Live Market Data</div>
+                <div class="data-card">
+                    <div class="data-label">Bitcoin Price</div>
+                    <div class="data-value" id="price">$--,---</div>
+                </div>
+                <div class="data-card">
+                    <div class="data-label">200-Week SMA</div>
+                    <div class="data-value orange" id="sma-200w">$--,---</div>
+                </div>
+                <div class="data-card">
+                    <div class="data-label">50-Week MA</div>
+                    <div class="data-value orange" id="ma-50w">$--,---</div>
+                </div>
+                <div class="data-card">
+                    <div class="data-label">Fear & Greed Index</div>
+                    <div class="data-value" id="fg">--</div>
+                </div>
+                <div class="data-card">
+                    <div class="data-label">RSI (25-day)</div>
+                    <div class="data-value" id="rsi">--</div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        async function loadData() {
-            try {
-                const response = await fetch('/api/data');
-                const data = await response.json();
+        let chartData = null;
+        let currentLayout = null;
+        let currentSignalLayout = null;
+        let currentChartView = 'price';
+        let currentTimeRange = 'ALL';
+        let showPrice = true;
+        let showSMA = true;
+        let show50W = true;
+        let showFG = false;
+        let showRSI = false;
+        let showVolume = true;
+        let previousPrice = null;
 
-                if (data.error) {
-                    document.getElementById('content').innerHTML = `
-                        <div class="error">
-                            Failed to load data: ${data.error}
-                        </div>
-                    `;
-                    return;
+        function setTimeRange(range) {
+            currentTimeRange = range;
+            document.querySelectorAll('.time-range-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            if (chartData) {
+                if (currentChartView === 'price') {
+                    renderChart(chartData);
+                } else if (currentChartView === 'signals') {
+                    renderSignalChart(chartData);
                 }
-
-                // Update price and timestamp
-                document.getElementById('price').textContent = `$${data.current_price.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
-                document.getElementById('timestamp').textContent = `Last updated: ${data.timestamp}`;
-
-                const signals = data.signals;
-                const config = data.config;
-
-                // Build indicators HTML
-                let indicatorsHTML = '';
-
-                // 200W SMA
-                indicatorsHTML += `
-                    <div class="indicator">
-                        <div class="indicator-name">200W SMA</div>
-                        <div class="indicator-value">${signals['200w'].ratio}</div>
-                        <span class="signal-badge signal-${signals['200w'].signal_text === 'BUY' ? 'buy' : (signals['200w'].signal_text === 'SELL' ? 'sell' : 'neutral')}">
-                            ${signals['200w'].signal_text}
-                        </span>
-                        <div class="weighted-signal">
-                            Weight: ${signals['200w'].weight}x → ${signals['200w'].weighted >= 0 ? '+' : ''}${signals['200w'].weighted}
-                        </div>
-                    </div>
-                `;
-
-                // 50W MA
-                indicatorsHTML += `
-                    <div class="indicator">
-                        <div class="indicator-name">50W MA (${signals['50w'].regime})</div>
-                        <div class="indicator-value">${signals['50w'].ratio}</div>
-                        <span class="signal-badge signal-${signals['50w'].signal_text === 'BUY' ? 'buy' : (signals['50w'].signal_text === 'SELL' ? 'sell' : 'neutral')}">
-                            ${signals['50w'].signal_text}
-                        </span>
-                        <div class="weighted-signal">
-                            Weight: ${signals['50w'].weight}x → ${signals['50w'].weighted >= 0 ? '+' : ''}${signals['50w'].weighted}
-                        </div>
-                    </div>
-                `;
-
-                // F&G
-                indicatorsHTML += `
-                    <div class="indicator">
-                        <div class="indicator-name">Fear & Greed</div>
-                        <div class="indicator-value">${signals.fg.value}</div>
-                        <span class="signal-badge signal-${signals.fg.signal_text === 'BUY' ? 'buy' : (signals.fg.signal_text === 'SELL' ? 'sell' : 'neutral')}">
-                            ${signals.fg.signal_text}
-                        </span>
-                        <div class="weighted-signal">
-                            Weight: ${signals.fg.weight}x → ${signals.fg.weighted >= 0 ? '+' : ''}${signals.fg.weighted}
-                        </div>
-                    </div>
-                `;
-
-                // RSI
-                indicatorsHTML += `
-                    <div class="indicator">
-                        <div class="indicator-name">RSI</div>
-                        <div class="indicator-value">${signals.rsi.value}</div>
-                        <span class="signal-badge signal-${signals.rsi.signal_text === 'BUY' ? 'buy' : (signals.rsi.signal_text === 'SELL' ? 'sell' : 'neutral')}">
-                            ${signals.rsi.signal_text}
-                        </span>
-                        <div class="weighted-signal">
-                            Weight: ${signals.rsi.weight}x → ${signals.rsi.weighted >= 0 ? '+' : ''}${signals.rsi.weighted}
-                        </div>
-                    </div>
-                `;
-
-                // Build config HTML
-                const p = config.parameters;
-                const configHTML = `
-                    <div class="config">
-                        <div class="config-title">Strategy Configuration</div>
-                        <div class="config-grid">
-                            <div class="config-item">
-                                <div class="config-label">200W Thresholds</div>
-                                <div class="config-value">Buy: ${signals['200w'].buy_threshold} | Sell: ${signals['200w'].sell_threshold}</div>
-                            </div>
-                            <div class="config-item">
-                                <div class="config-label">50W Bull</div>
-                                <div class="config-value">Ext: ${p.ma_50w.bull_ext.toFixed(2)} | Supp: ${p.ma_50w.bull_supp.toFixed(2)}</div>
-                            </div>
-                            <div class="config-item">
-                                <div class="config-label">50W Bear</div>
-                                <div class="config-value">Res: ${p.ma_50w.bear_res.toFixed(2)} | Deep: ${p.ma_50w.bear_deep.toFixed(2)}</div>
-                            </div>
-                            <div class="config-item">
-                                <div class="config-label">F&G EMA</div>
-                                <div class="config-value">${p.fg.ema_period}d | Buy: <${signals.fg.buy_threshold} | Sell: >${signals.fg.sell_threshold}</div>
-                            </div>
-                            <div class="config-item">
-                                <div class="config-label">RSI</div>
-                                <div class="config-value">${p.rsi.period}d | Buy: <${signals.rsi.buy_threshold} | Sell: >${signals.rsi.sell_threshold}</div>
-                            </div>
-                            <div class="config-item">
-                                <div class="config-label">Performance</div>
-                                <div class="config-value">${config.total_return.toFixed(0)}% Return</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-
-                // Build main content
-                document.getElementById('content').innerHTML = `
-                    <div class="action-card">
-                        <div class="action ${signals.action_class}">
-                            ${signals.action}
-                        </div>
-                        <div class="combined-score">Combined Signal: ${signals.combined >= 0 ? '+' : ''}${signals.combined}</div>
-                    </div>
-
-                    <div class="indicators">
-                        ${indicatorsHTML}
-                    </div>
-
-                    ${configHTML}
-
-                    <div class="footer">
-                        5-Stage Optimized Strategy | Auto-refresh every 5 minutes
-                    </div>
-                `;
-
-            } catch (error) {
-                console.error('Error loading data:', error);
-                document.getElementById('content').innerHTML = `
-                    <div class="error">
-                        Error loading data. Please try again.
-                    </div>
-                `;
             }
         }
 
-        // Load data on page load
-        loadData();
+        function toggleVisibility(element) {
+            if (element === 'price') showPrice = document.getElementById('vis-price').checked;
+            if (element === 'sma') showSMA = document.getElementById('vis-sma').checked;
+            if (element === '50w') show50W = document.getElementById('vis-50w').checked;
+            if (element === 'fg') showFG = document.getElementById('vis-fg').checked;
+            if (element === 'rsi') showRSI = document.getElementById('vis-rsi').checked;
+            if (element === 'volume') showVolume = document.getElementById('vis-volume').checked;
 
-        // Auto-refresh every 5 minutes
-        setInterval(loadData, 300000);
-
-        // Register service worker for PWA
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/service-worker.js').catch(err => {
-                console.log('Service worker registration failed:', err);
-            });
+            if (chartData) {
+                if (currentChartView === 'price') {
+                    renderChart(chartData);
+                } else if (currentChartView === 'signals') {
+                    renderSignalChart(chartData);
+                }
+            }
         }
+
+        function getCutoffDate() {
+            if (currentTimeRange === 'ALL') return null;
+            const now = new Date();
+            const cutoff = new Date(now);
+            switch(currentTimeRange) {
+                case '1M':
+                    cutoff.setMonth(cutoff.getMonth() - 1);
+                    break;
+                case '3M':
+                    cutoff.setMonth(cutoff.getMonth() - 3);
+                    break;
+                case '1Y':
+                    cutoff.setFullYear(cutoff.getFullYear() - 1);
+                    break;
+            }
+            return cutoff;
+        }
+
+        function switchChart(view) {
+            currentChartView = view;
+            const priceChart = document.getElementById('chart');
+            const signalChart = document.getElementById('signal-chart');
+            const faqContent = document.getElementById('faq-content');
+            const timeRangeSelector = document.querySelector('.time-range-selector');
+            const tabs = document.querySelectorAll('.chart-tab');
+
+            tabs.forEach(tab => tab.classList.remove('active'));
+
+            if (view === 'price') {
+                priceChart.classList.remove('hidden');
+                signalChart.classList.add('hidden');
+                faqContent.classList.add('hidden');
+                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
+                tabs[0].classList.add('active');
+                if (chartData) {
+                    renderChart(chartData);
+                    setTimeout(() => Plotly.Plots.resize('chart'), 100);
+                }
+            } else if (view === 'signals') {
+                priceChart.classList.add('hidden');
+                signalChart.classList.remove('hidden');
+                faqContent.classList.add('hidden');
+                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
+                tabs[1].classList.add('active');
+                if (chartData) {
+                    renderSignalChart(chartData);
+                    setTimeout(() => Plotly.Plots.resize('signal-chart'), 100);
+                }
+            } else if (view === 'faq') {
+                priceChart.classList.add('hidden');
+                signalChart.classList.add('hidden');
+                faqContent.classList.remove('hidden');
+                if (timeRangeSelector) timeRangeSelector.style.display = 'none';
+                tabs[2].classList.add('active');
+                if (chartData) {
+                    renderFAQ(chartData);
+                }
+            }
+        }
+
+        async function loadData() {
+            try {
+                const res = await fetch('/api/data');
+                const data = await res.json();
+
+                if (data.error) {
+                    console.error('API Error:', data.error);
+                    return;
+                }
+
+                chartData = data;
+                updateLiveData(data);
+                updateSignalCard(data);
+
+                if (currentChartView === 'price') {
+                    renderChart(data);
+                } else if (currentChartView === 'signals') {
+                    renderSignalChart(data);
+                }
+
+                document.getElementById('loading').classList.add('hidden');
+            } catch (err) {
+                console.error('Error loading data:', err);
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        function renderChart(data) {
+            try {
+                if (!data.daily || data.daily.length === 0) return;
+
+                // Apply time range filter
+                const cutoffDate = getCutoffDate();
+                let filteredDaily = data.daily;
+                if (cutoffDate) {
+                    filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
+                }
+
+                const traces = [];
+
+                if (showPrice) {
+                    traces.push({
+                        type: 'candlestick',
+                        x: filteredDaily.map(d => d.time),
+                        open: filteredDaily.map(d => d.open),
+                        high: filteredDaily.map(d => d.high),
+                        low: filteredDaily.map(d => d.low),
+                        close: filteredDaily.map(d => d.close),
+                        name: 'BTC/USD',
+                        increasing: {line: {color: '#10b981'}},
+                        decreasing: {line: {color: '#ef4444'}},
+                        yaxis: 'y',
+                        showlegend: true
+                    });
+                }
+
+                if (showVolume) {
+                    traces.push({
+                        type: 'bar',
+                        x: filteredDaily.map(d => d.time),
+                        y: filteredDaily.map(d => d.volume),
+                        name: 'Volume',
+                        marker: {color: filteredDaily.map(d => d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')},
+                        yaxis: 'y2',
+                        showlegend: true
+                    });
+                }
+
+                if (showSMA) {
+                    const smaData = filteredDaily.filter(d => d.sma_200w !== null);
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'lines',
+                        x: smaData.map(d => d.time),
+                        y: smaData.map(d => d.sma_200w),
+                        name: '200W SMA',
+                        line: {color: '#f59e0b', width: 2},
+                        yaxis: 'y',
+                        showlegend: true
+                    });
+                }
+
+                if (show50W) {
+                    const ma50Data = filteredDaily.filter(d => d.ma_50w !== null);
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'lines',
+                        x: ma50Data.map(d => d.time),
+                        y: ma50Data.map(d => d.ma_50w),
+                        name: '50W MA',
+                        line: {color: '#3b82f6', width: 2},
+                        yaxis: 'y',
+                        showlegend: true
+                    });
+                }
+
+                if (showFG) {
+                    const fgData = filteredDaily.filter(d => d.fg_index !== null);
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'lines',
+                        x: fgData.map(d => d.time),
+                        y: fgData.map(d => d.fg_index),
+                        name: 'Fear & Greed',
+                        line: {color: '#8b5cf6', width: 2, shape: 'spline', smoothing: 0.3},
+                        yaxis: 'y3',
+                        showlegend: true
+                    });
+                }
+
+                if (showRSI) {
+                    const rsiData = filteredDaily.filter(d => d.rsi !== null);
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'lines',
+                        x: rsiData.map(d => d.time),
+                        y: rsiData.map(d => d.rsi),
+                        name: 'RSI',
+                        line: {color: '#ec4899', width: 2},
+                        yaxis: 'y3',
+                        showlegend: true
+                    });
+                }
+
+                const layout = {
+                    paper_bgcolor: '#ffffff',
+                    plot_bgcolor: '#f8f9fa',
+                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'},
+                    showlegend: true,
+                    legend: {
+                        font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
+                        bgcolor: 'rgba(248,249,250,0.95)',
+                        bordercolor: '#d1d5db',
+                        borderwidth: 1,
+                        itemclick: false,
+                        itemdoubleclick: false,
+                        orientation: 'h',
+                        x: 0,
+                        y: 1.08,
+                        xanchor: 'left',
+                        yanchor: 'top'
+                    },
+                    hovermode: 'x unified',
+                    dragmode: false,
+                    xaxis: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        fixedrange: true,
+                        autorange: true,
+                        rangeslider: {visible: false}
+                    },
+                    yaxis: {
+                        title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
+                        gridcolor: '#e5e7eb',
+                        side: 'left',
+                        domain: [0.25, 1],
+                        fixedrange: true,
+                        autorange: true,
+                        type: 'linear'
+                    },
+                    yaxis2: {
+                        gridcolor: 'transparent',
+                        showticklabels: false,
+                        domain: [0, 0.2],
+                        fixedrange: true,
+                        autorange: true
+                    },
+                    yaxis3: {
+                        title: {text: 'F&G / RSI', font: {size: 12, color: '#6b7280'}},
+                        gridcolor: 'transparent',
+                        side: 'right',
+                        overlaying: 'y',
+                        fixedrange: true,
+                        autorange: true
+                    },
+                    margin: {l: 60, r: 80, t: 60, b: 60}
+                };
+
+                const config = {
+                    responsive: true,
+                    displayModeBar: false,
+                    displaylogo: false,
+                    staticPlot: true
+                };
+
+                Plotly.newPlot('chart', traces, layout, config);
+                currentLayout = layout;
+            } catch (err) {
+                console.error('Error rendering chart:', err);
+            }
+        }
+
+        function renderSignalChart(data) {
+            try {
+                if (!data.daily || data.daily.length === 0) return;
+
+                // Apply time range filter
+                const cutoffDate = getCutoffDate();
+                let filteredDaily = data.daily;
+                let filteredBuys = data.buy_signals;
+                let filteredSells = data.sell_signals;
+
+                if (cutoffDate) {
+                    filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
+
+                    const buyDates = [];
+                    const buyPrices = [];
+                    for (let i = 0; i < data.buy_signals.dates.length; i++) {
+                        if (new Date(data.buy_signals.dates[i]) >= cutoffDate) {
+                            buyDates.push(data.buy_signals.dates[i]);
+                            buyPrices.push(data.buy_signals.prices[i]);
+                        }
+                    }
+                    filteredBuys = {dates: buyDates, prices: buyPrices};
+
+                    const sellDates = [];
+                    const sellPrices = [];
+                    for (let i = 0; i < data.sell_signals.dates.length; i++) {
+                        if (new Date(data.sell_signals.dates[i]) >= cutoffDate) {
+                            sellDates.push(data.sell_signals.dates[i]);
+                            sellPrices.push(data.sell_signals.prices[i]);
+                        }
+                    }
+                    filteredSells = {dates: sellDates, prices: sellPrices};
+                }
+
+                const traces = [];
+
+                // BTC price line
+                traces.push({
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: filteredDaily.map(d => d.time),
+                    y: filteredDaily.map(d => d.close),
+                    name: 'BTC Price',
+                    line: {color: '#1f2937', width: 1.5},
+                    showlegend: true
+                });
+
+                // Buy signals
+                if (filteredBuys.dates.length > 0) {
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'markers',
+                        x: filteredBuys.dates,
+                        y: filteredBuys.prices,
+                        name: `Buy (${filteredBuys.dates.length})`,
+                        marker: {color: '#10b981', size: 8, symbol: 'triangle-up', opacity: 0.7},
+                        showlegend: true
+                    });
+                }
+
+                // Sell signals
+                if (filteredSells.dates.length > 0) {
+                    traces.push({
+                        type: 'scatter',
+                        mode: 'markers',
+                        x: filteredSells.dates,
+                        y: filteredSells.prices,
+                        name: `Sell (${filteredSells.dates.length})`,
+                        marker: {color: '#ef4444', size: 8, symbol: 'triangle-down', opacity: 0.7},
+                        showlegend: true
+                    });
+                }
+
+                const layout = {
+                    paper_bgcolor: '#ffffff',
+                    plot_bgcolor: '#f8f9fa',
+                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'},
+                    showlegend: true,
+                    legend: {
+                        font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
+                        bgcolor: 'rgba(248,249,250,0.95)',
+                        bordercolor: '#d1d5db',
+                        borderwidth: 1,
+                        orientation: 'h',
+                        x: 0,
+                        y: 1.08,
+                        xanchor: 'left',
+                        yanchor: 'top'
+                    },
+                    hovermode: 'closest',
+                    dragmode: false,
+                    xaxis: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        fixedrange: true,
+                        autorange: true
+                    },
+                    yaxis: {
+                        title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
+                        gridcolor: '#e5e7eb',
+                        fixedrange: true,
+                        autorange: true,
+                        type: 'linear'
+                    },
+                    margin: {l: 60, r: 40, t: 60, b: 60}
+                };
+
+                const config = {
+                    responsive: true,
+                    displayModeBar: false,
+                    displaylogo: false,
+                    staticPlot: true
+                };
+
+                Plotly.newPlot('signal-chart', traces, layout, config);
+                currentSignalLayout = layout;
+            } catch (err) {
+                console.error('Error rendering signal chart:', err);
+            }
+        }
+
+        function renderFAQ(data) {
+            const faqDiv = document.getElementById('faq-content');
+            const signals = data.signals;
+            const config = data.config;
+            const p = config.parameters;
+
+            faqDiv.innerHTML = `
+                <div class="faq-content">
+                    <div class="faq-hero">
+                        <h2 class="faq-hero-title">How the 4-Indicator Strategy Works</h2>
+                        <p class="faq-hero-text">
+                            This optimized strategy combines <strong>200-week SMA</strong> (with decay),
+                            <strong>50-week MA</strong> (regime-based), <strong>Fear & Greed EMA</strong>,
+                            and <strong>RSI</strong> to generate high-conviction signals. Each indicator provides
+                            a +1 (BUY), 0 (NEUTRAL), or -1 (SELL) signal, weighted by their optimized importance.
+                            Combined score ≥2 = BUY, ≤-2 = SELL, otherwise HOLD.
+                        </p>
+                    </div>
+
+                    <div class="faq-section">
+                        <div class="faq-section-title">📊 Indicator Thresholds</div>
+                        <div class="faq-section-content">
+                            <table class="faq-table">
+                                <thead>
+                                    <tr>
+                                        <th>Indicator</th>
+                                        <th>Buy Threshold</th>
+                                        <th>Sell Threshold</th>
+                                        <th>Weight</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>200W SMA Ratio</strong></td>
+                                        <td>&lt; ${signals['200w'].buy_threshold}</td>
+                                        <td>&gt; ${signals['200w'].sell_threshold}</td>
+                                        <td>${signals['200w'].weight}x</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>50W MA (Bull)</strong></td>
+                                        <td>&lt; ${p.ma_50w.bull_supp.toFixed(2)}</td>
+                                        <td>&gt; ${p.ma_50w.bull_ext.toFixed(2)}</td>
+                                        <td>${signals['50w'].weight}x</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>50W MA (Bear)</strong></td>
+                                        <td>&lt; ${p.ma_50w.bear_deep.toFixed(2)}</td>
+                                        <td>&gt; ${p.ma_50w.bear_res.toFixed(2)}</td>
+                                        <td>${signals['50w'].weight}x</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>F&G EMA (${p.fg.ema_period}d)</strong></td>
+                                        <td>&lt; ${signals.fg.buy_threshold}</td>
+                                        <td>&gt; ${signals.fg.sell_threshold}</td>
+                                        <td>${signals.fg.weight}x</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>RSI (${p.rsi.period}d)</strong></td>
+                                        <td>&lt; ${signals.rsi.buy_threshold}</td>
+                                        <td>&gt; ${signals.rsi.sell_threshold}</td>
+                                        <td>${signals.rsi.weight}x</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <div style="margin-top: 20px;">
+                                <p><strong>Note:</strong> 200W SMA thresholds decay exponentially at ${(p.sma_200w.decay * 100).toFixed(1)}% per year to account for Bitcoin's maturing market.</p>
+                                <p><strong>Performance:</strong> ${config.total_return.toFixed(0)}% total return in backtesting.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateLiveData(data) {
+            const priceElement = document.getElementById('price');
+            const newPrice = data.current_price;
+
+            const formattedPrice = '$' + newPrice.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            priceElement.textContent = formattedPrice;
+
+            // Flash animation
+            if (previousPrice !== null && previousPrice !== newPrice) {
+                priceElement.classList.remove('flash-green', 'flash-red');
+                void priceElement.offsetWidth;
+
+                if (newPrice > previousPrice) {
+                    priceElement.classList.add('flash-green');
+                } else if (newPrice < previousPrice) {
+                    priceElement.classList.add('flash-red');
+                }
+
+                setTimeout(() => {
+                    priceElement.classList.remove('flash-green', 'flash-red');
+                }, 600);
+            }
+            previousPrice = newPrice;
+
+            // Update other data cards with actual values
+            if (data.daily && data.daily.length > 0) {
+                const latest = data.daily[data.daily.length - 1];
+
+                if (latest.sma_200w) {
+                    document.getElementById('sma-200w').textContent = '$' + latest.sma_200w.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                }
+
+                if (latest.ma_50w) {
+                    document.getElementById('ma-50w').textContent = '$' + latest.ma_50w.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                }
+
+                if (latest.fg_ema) {
+                    document.getElementById('fg').textContent = Math.round(latest.fg_ema);
+                }
+
+                if (latest.rsi) {
+                    document.getElementById('rsi').textContent = Math.round(latest.rsi);
+                }
+            }
+        }
+
+        function updateSignalCard(data) {
+            const dateEl = document.getElementById('signal-date');
+            const textEl = document.getElementById('signal-text');
+            const scoreEl = document.getElementById('signal-score');
+            const cardEl = document.getElementById('signal-card');
+
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
+            dateEl.textContent = dateStr;
+
+            if (data.signals) {
+                const s = data.signals;
+                textEl.textContent = s.action;
+                scoreEl.textContent = `Combined Signal: ${s.combined >= 0 ? '+' : ''}${s.combined}`;
+                cardEl.className = 'signal-card ' + s.action_class;
+
+                // Update subsignals
+                document.getElementById('sig-200w').textContent = s['200w'].signal_text;
+                document.getElementById('sig-200w-val').textContent = `${s['200w'].ratio} (${s['200w'].weighted >= 0 ? '+' : ''}${s['200w'].weighted})`;
+
+                document.getElementById('sig-50w').textContent = s['50w'].signal_text;
+                document.getElementById('sig-50w-val').textContent = `${s['50w'].ratio} ${s['50w'].regime} (${s['50w'].weighted >= 0 ? '+' : ''}${s['50w'].weighted})`;
+
+                document.getElementById('sig-fg').textContent = s.fg.signal_text;
+                document.getElementById('sig-fg-val').textContent = `${s.fg.value} (${s.fg.weighted >= 0 ? '+' : ''}${s.fg.weighted})`;
+
+                document.getElementById('sig-rsi').textContent = s.rsi.signal_text;
+                document.getElementById('sig-rsi-val').textContent = `${s.rsi.value} (${s.rsi.weighted >= 0 ? '+' : ''}${s.rsi.weighted})`;
+            }
+        }
+
+        loadData();
+        setInterval(loadData, 300000); // Refresh every 5 minutes
+
+        // Handle window resize
+        let resizeTimer;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function() {
+                if (chartData) {
+                    if (currentChartView === 'price') {
+                        Plotly.Plots.resize('chart');
+                    } else if (currentChartView === 'signals') {
+                        Plotly.Plots.resize('signal-chart');
+                    }
+                }
+            }, 250);
+        });
     </script>
 </body>
 </html>
