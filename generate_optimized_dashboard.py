@@ -406,7 +406,7 @@ def generate_html(df, config, signals):
         </div>
 
         <div class="footer">
-            5-Stage Dual Decay Optimized Strategy | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+            5-Stage Dual Decay Constrained Strategy (Balanced Weights ≤2.0) | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
         </div>
     </div>
 
@@ -423,8 +423,8 @@ def generate_html(df, config, signals):
 def main():
     print("\n[INFO] Generating optimized dashboard...")
 
-    # Load config
-    with open('final_5stage_config.json') as f:
+    # Load config (using constrained model with balanced weights)
+    with open('constrained_5stage_config.json') as f:
         config = json.load(f)
 
     print("[INFO] Fetching data...")

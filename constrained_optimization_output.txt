@@ -1,0 +1,146 @@
+
+======================================================================
+5-STAGE MULTI-STAGE GRADIENT OPTIMIZATION - DUAL DECAY CONSTRAINED
+18 parameters with WEIGHT CONSTRAINT: No weight > 2.0 (threshold magnitude)
+======================================================================
+
+[INFO] Loaded 2969 days
+
+
+======================================================================
+STAGE 1
+======================================================================
+differential_evolution step 1: f(x)= -27165.02018722239
+differential_evolution step 2: f(x)= -30446.991162664803
+differential_evolution step 3: f(x)= -30446.991162664803
+differential_evolution step 4: f(x)= -30446.991162664803
+differential_evolution step 5: f(x)= -34854.61980085164
+differential_evolution step 6: f(x)= -34854.61980085164
+differential_evolution step 7: f(x)= -34854.61980085164
+differential_evolution step 8: f(x)= -34854.61980085164
+differential_evolution step 9: f(x)= -34854.61980085164
+differential_evolution step 10: f(x)= -34854.61980085164
+differential_evolution step 11: f(x)= -34854.61980085164
+differential_evolution step 12: f(x)= -36060.60244480922
+differential_evolution step 13: f(x)= -36060.60244480922
+differential_evolution step 14: f(x)= -36060.60244480922
+differential_evolution step 15: f(x)= -36462.44524713657
+Polishing solution with 'L-BFGS-B'
+
+[STAGE 1 COMPLETE] Best value: $36,462
+
+======================================================================
+STAGE 2
+======================================================================
+differential_evolution step 1: f(x)= -37553.79575680282
+differential_evolution step 2: f(x)= -39031.501744726665
+differential_evolution step 3: f(x)= -39031.501744726665
+differential_evolution step 4: f(x)= -39444.41129385733
+differential_evolution step 5: f(x)= -39444.41129385733
+differential_evolution step 6: f(x)= -39444.41129385733
+differential_evolution step 7: f(x)= -39471.52854436455
+differential_evolution step 8: f(x)= -39471.52854436455
+differential_evolution step 9: f(x)= -39598.033355661864
+differential_evolution step 10: f(x)= -39598.033355661864
+differential_evolution step 11: f(x)= -40515.68297578439
+differential_evolution step 12: f(x)= -40526.624109186305
+differential_evolution step 13: f(x)= -40526.624109186305
+differential_evolution step 14: f(x)= -40697.683274742914
+differential_evolution step 15: f(x)= -40697.683274742914
+Polishing solution with 'L-BFGS-B'
+
+[STAGE 2 COMPLETE] Best value: $40,698
+
+======================================================================
+STAGE 3
+======================================================================
+differential_evolution step 1: f(x)= -41713.58662767915
+differential_evolution step 2: f(x)= -41713.58662767915
+differential_evolution step 3: f(x)= -41713.58662767915
+differential_evolution step 4: f(x)= -41713.58662767915
+differential_evolution step 5: f(x)= -41801.83238700013
+differential_evolution step 6: f(x)= -41801.83238700013
+differential_evolution step 7: f(x)= -41801.83238700013
+differential_evolution step 8: f(x)= -42023.23351820912
+differential_evolution step 9: f(x)= -42606.05679138588
+differential_evolution step 10: f(x)= -42606.05679138588
+differential_evolution step 11: f(x)= -42606.05679138588
+differential_evolution step 12: f(x)= -42606.05679138588
+differential_evolution step 13: f(x)= -42606.05679138588
+differential_evolution step 14: f(x)= -42606.05679138588
+differential_evolution step 15: f(x)= -42618.94231417087
+Polishing solution with 'L-BFGS-B'
+
+[STAGE 3 COMPLETE] Best value: $42,619
+
+======================================================================
+STAGE 4
+======================================================================
+differential_evolution step 1: f(x)= -42618.94231417087
+differential_evolution step 2: f(x)= -42618.94231417087
+differential_evolution step 3: f(x)= -42618.94231417087
+differential_evolution step 4: f(x)= -42618.94231417087
+differential_evolution step 5: f(x)= -42618.94231417087
+differential_evolution step 6: f(x)= -42646.026167702075
+differential_evolution step 7: f(x)= -42646.026167702075
+differential_evolution step 8: f(x)= -42646.026167702075
+differential_evolution step 9: f(x)= -42646.026167702075
+differential_evolution step 10: f(x)= -42646.026167702075
+Polishing solution with 'L-BFGS-B'
+
+[STAGE 4 COMPLETE] Best value: $42,646
+
+======================================================================
+STAGE 5
+======================================================================
+differential_evolution step 1: f(x)= -42653.78988376362
+differential_evolution step 2: f(x)= -42690.548796957075
+differential_evolution step 3: f(x)= -42690.548796957075
+differential_evolution step 4: f(x)= -42690.548796957075
+differential_evolution step 5: f(x)= -42690.548796957075
+differential_evolution step 6: f(x)= -42690.548796957075
+differential_evolution step 7: f(x)= -42716.33853690744
+differential_evolution step 8: f(x)= -42716.33853690744
+Polishing solution with 'L-BFGS-B'
+
+[STAGE 5 COMPLETE] Best value: $42,716
+
+======================================================================
+FINAL SIMULATION
+==================================================================differential_evolution step 8: f(x)= -45678.67107794975
+differential_evolution step 9: f(x)= -45816.472539211085
+differential_evolution step 10: f(x)= -45816.472539211085
+differential_evolution step 11: f(x)= -45816.472539211085
+differential_evolution step 12: f(x)= -45816.472539211085
+differential_evolution step 13: f(x)= -45816.472539211085
+differential_evolution step 14: f(x)= -45816.472539211085
+Polishing solution with 'L-BFGS-B'
+
+[STAGE 5 COMPLETE] Best value: $45,816
+
+======================================================================
+FINAL SIMULATION
+======================================================================
+
+Final Value: $45,816
+Total Return: 4482%
+Total Trades: 1191 (742 buys / 449 sells)
+
+Key Periods:
+  April 2025 buys: 26
+  Feb 2026 buys: 3
+  2024-2025 sells: 212
+
+Optimized Parameters:
+  200W SMA: buy=1.993, sell=3.180, decay_buy=0.9894, decay_sell=0.9398
+  50W MA: bull_ext=2.339, bull_supp=1.197, bear_res=0.659, bear_deep=0.651
+  F&G: period=43, buy=27.7, sell=50.8
+  RSI: period=17, buy=17.8, sell=104.0
+  Weights: 200W=1.27, 50W=1.02, F&G=1.71, RSI=1.59
+
+[INFO] Creating dashboard...
+[OK] Saved to constrained_5stage_dashboard.png
+[OK] Saved configuration to constrained_5stage_config.json
+
+======================================================================
+
