@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Bitcoin 4-Indicator Optimized Dashboard
-Uses 200W SMA, 50W MA (regime-based), F&G, and RSI
+Bitcoin Pocojuan Model Dashboard
+Professional, minimalistic trading signals dashboard
 """
 
 import sys
@@ -45,7 +45,7 @@ def load_config():
         if os.path.exists(json_path):
             with open(json_path, 'r') as f:
                 CONFIG = json.load(f)
-            print("[INFO] ✓ Loaded optimized 4-indicator configuration")
+            print("[INFO] ✓ Loaded Pocojuan Model configuration")
             print(f"[INFO] Total Return: {CONFIG.get('total_return', 0):.2f}%")
         else:
             print(f"[ERROR] final_5stage_config.json not found at {json_path}")
@@ -277,10 +277,10 @@ def get_signals(latest_row, config):
 
         # Determine action
         if combined >= 2:
-            action = 'STRONG BUY'
+            action = 'BUY'
             action_class = 'buy'
         elif combined <= -2:
-            action = 'STRONG SELL'
+            action = 'SELL'
             action_class = 'sell'
         else:
             action = 'HOLD'
@@ -289,7 +289,7 @@ def get_signals(latest_row, config):
         return {
             '200w': {
                 'signal': sig_200w,
-                'signal_text': 'BUY' if sig_200w == 1 else ('SELL' if sig_200w == -1 else 'NEUTRAL'),
+                'signal_text': 'BUY' if sig_200w == 1 else ('SELL' if sig_200w == -1 else 'HOLD'),
                 'weighted': round(sig_200w * w['w_200w'], 2),
                 'weight': round(w['w_200w'], 2),
                 'ratio': round(latest_row['sma_ratio'], 3),
@@ -298,7 +298,7 @@ def get_signals(latest_row, config):
             },
             '50w': {
                 'signal': sig_50w,
-                'signal_text': 'BUY' if sig_50w == 1 else ('SELL' if sig_50w == -1 else 'NEUTRAL'),
+                'signal_text': 'BUY' if sig_50w == 1 else ('SELL' if sig_50w == -1 else 'HOLD'),
                 'weighted': round(sig_50w * w['w_50w'], 2),
                 'weight': round(w['w_50w'], 2),
                 'ratio': round(latest_row['ma50w_ratio'], 3),
@@ -306,7 +306,7 @@ def get_signals(latest_row, config):
             },
             'fg': {
                 'signal': sig_fg,
-                'signal_text': 'BUY' if sig_fg == 1 else ('SELL' if sig_fg == -1 else 'NEUTRAL'),
+                'signal_text': 'BUY' if sig_fg == 1 else ('SELL' if sig_fg == -1 else 'HOLD'),
                 'weighted': round(sig_fg * w['w_fg'], 2),
                 'weight': round(w['w_fg'], 2),
                 'value': round(latest_row['fg_ema'], 1),
@@ -315,7 +315,7 @@ def get_signals(latest_row, config):
             },
             'rsi': {
                 'signal': sig_rsi,
-                'signal_text': 'BUY' if sig_rsi == 1 else ('SELL' if sig_rsi == -1 else 'NEUTRAL'),
+                'signal_text': 'BUY' if sig_rsi == 1 else ('SELL' if sig_rsi == -1 else 'HOLD'),
                 'weighted': round(sig_rsi * w['w_rsi'], 2),
                 'weight': round(w['w_rsi'], 2),
                 'value': round(latest_row['rsi'], 1),
@@ -398,6 +398,79 @@ def prepare_all_data():
     }
 
 # ============================================================================
+# PERFORMANCE CALCULATIONS
+# ============================================================================
+
+def calculate_performance_stats(data, config):
+    """Calculate performance statistics for the model"""
+    try:
+        trades = []
+        position = None
+
+        for idx, row in data['daily'].iterrows():
+            if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
+                continue
+
+            signals = get_signals(row, config)
+            if not signals:
+                continue
+
+            if signals['action_class'] == 'buy' and position is None:
+                position = {'entry_price': row['close'], 'entry_date': row['time']}
+            elif signals['action_class'] == 'sell' and position is not None:
+                trade_return = (row['close'] - position['entry_price']) / position['entry_price']
+                trades.append({
+                    'entry_date': position['entry_date'],
+                    'exit_date': row['time'],
+                    'return': trade_return,
+                    'win': trade_return > 0
+                })
+                position = None
+
+        if len(trades) == 0:
+            return {'total_trades': 0, 'win_rate': 0, 'total_return': 0}
+
+        win_count = sum(1 for t in trades if t['win'])
+        win_rate = (win_count / len(trades)) * 100
+
+        return {
+            'total_trades': len(trades),
+            'win_rate': round(win_rate, 1),
+            'total_return': round(config.get('total_return', 0), 1)
+        }
+    except Exception as e:
+        print(f"[ERROR] Performance calculation: {e}")
+        return {'total_trades': 0, 'win_rate': 0, 'total_return': 0}
+
+def calculate_dca_comparison(data):
+    """Calculate DCA vs Pocojuan Model comparison"""
+    try:
+        valid_data = data['daily'][data['daily']['close'].notna()].copy()
+        if len(valid_data) == 0:
+            return None
+
+        # DCA: $1000 invested evenly
+        daily_investment = 1000 / len(valid_data)
+        dca_btc = sum(daily_investment / row['close'] for _, row in valid_data.iterrows())
+        dca_final_value = dca_btc * valid_data.iloc[-1]['close']
+        dca_return = ((dca_final_value - 1000) / 1000) * 100
+
+        # Pocojuan Model
+        model_final_value = CONFIG.get('final_value', 0)
+        model_return = CONFIG.get('total_return', 0)
+
+        return {
+            'dca_final_value': round(dca_final_value, 2),
+            'dca_return': round(dca_return, 2),
+            'model_final_value': round(model_final_value, 2),
+            'model_return': round(model_return, 2),
+            'outperformance': round(model_return - dca_return, 2)
+        }
+    except Exception as e:
+        print(f"[ERROR] DCA calculation: {e}")
+        return None
+
+# ============================================================================
 # API ENDPOINTS
 # ============================================================================
 
@@ -408,6 +481,17 @@ def service_worker():
         return send_file('service-worker.js', mimetype='application/javascript')
     except:
         return '', 404
+
+@app.route('/api/price')
+def api_price():
+    """Quick endpoint for live price updates"""
+    try:
+        price = fetch_current_price()
+        if price:
+            return jsonify({'price': price, 'timestamp': datetime.now().isoformat()})
+        return jsonify({'error': 'Failed to fetch price'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/data')
 def api_data():
@@ -433,23 +517,27 @@ def api_data():
     # Calculate current signals
     signals = get_signals(latest_row, CONFIG)
 
-    # Generate historical buy/sell signals
+    # Calculate historical signals for all rows
+    historical_signals = []
+    for idx, row in data['daily'].iterrows():
+        if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
+            historical_signals.append(None)
+            continue
+
+        hist_sig = get_signals(row, CONFIG)
+        historical_signals.append(hist_sig)
+
+    # Generate buy/sell signals
     buy_signals = {'dates': [], 'prices': []}
     sell_signals = {'dates': [], 'prices': []}
 
-    # Calculate signals for all historical data
-    for idx, row in data['daily'].iterrows():
-        if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
-            continue
-
-        hist_signals = get_signals(row, CONFIG)
-        if hist_signals:
-            if hist_signals['action_class'] == 'buy':
-                buy_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
-                buy_signals['prices'].append(float(row['close']))
-            elif hist_signals['action_class'] == 'sell':
-                sell_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
-                sell_signals['prices'].append(float(row['close']))
+    for idx, (_, row) in enumerate(data['daily'].iterrows()):
+        if historical_signals[idx] and historical_signals[idx]['action_class'] == 'buy':
+            buy_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
+            buy_signals['prices'].append(float(row['close']))
+        elif historical_signals[idx] and historical_signals[idx]['action_class'] == 'sell':
+            sell_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
+            sell_signals['prices'].append(float(row['close']))
 
     # Prepare daily data for charts
     daily_data = []
@@ -465,10 +553,29 @@ def api_data():
             'ma_50w': float(row['ma_50w']) if not pd.isna(row['ma_50w']) else None,
             'fg_index': int(row['fg_index']) if not pd.isna(row['fg_index']) else None,
             'fg_ema': float(row['fg_ema']) if not pd.isna(row['fg_ema']) else None,
-            'rsi': float(row['rsi']) if not pd.isna(row['rsi']) else None
+            'rsi': float(row['rsi']) if not pd.isna(row['rsi']) else None,
+            'regime': row['regime'] if 'regime' in row and not pd.isna(row['regime']) else None
         })
 
-    # Extract current values for compatibility with old frontend structure
+    # Prepare historical signal data for visualization
+    historical_signal_data = []
+    for idx, sig in enumerate(historical_signals):
+        if sig:
+            historical_signal_data.append({
+                'time': data['daily'].iloc[idx]['time'].strftime('%Y-%m-%d'),
+                'sig_200w': sig['200w']['signal'],
+                'sig_50w': sig['50w']['signal'],
+                'sig_fg': sig['fg']['signal'],
+                'sig_rsi': sig['rsi']['signal'],
+                'weighted_200w': sig['200w']['weighted'],
+                'weighted_50w': sig['50w']['weighted'],
+                'weighted_fg': sig['fg']['weighted'],
+                'weighted_rsi': sig['rsi']['weighted'],
+                'combined': sig['combined'],
+                'regime': sig['50w']['regime']
+            })
+
+    # Extract current values
     current_sma = float(latest_row['sma_200w']) if not pd.isna(latest_row['sma_200w']) else 0
     current_ma_50w = float(latest_row['ma_50w']) if not pd.isna(latest_row['ma_50w']) else 0
     current_fg = int(latest_row['fg_index']) if not pd.isna(latest_row['fg_index']) else 0
@@ -478,14 +585,14 @@ def api_data():
     current_ma50w_ratio = float(latest_row['ma50w_ratio']) if not pd.isna(latest_row['ma50w_ratio']) else 0
     current_regime = latest_row['regime'] if 'regime' in latest_row else 'bull'
 
-    # Create signal objects in the old format
+    # Create signal objects
     if signals:
         overall_signal = {
             'value': 2 if signals['action_class'] == 'buy' else (0 if signals['action_class'] == 'sell' else 1),
             'text': signals['action']
         }
         sig_200w = {
-            'value': signals['200w']['signal'] + 2,  # Convert -1,0,1 to 1,2,3
+            'value': signals['200w']['signal'] + 2,
             'text': signals['200w']['signal_text']
         }
         sig_50w = {
@@ -502,14 +609,18 @@ def api_data():
         }
     else:
         overall_signal = {'value': 1, 'text': 'HOLD'}
-        sig_200w = {'value': 1, 'text': 'NEUTRAL'}
-        sig_50w = {'value': 1, 'text': 'NEUTRAL'}
-        sig_fg = {'value': 1, 'text': 'NEUTRAL'}
-        sig_rsi = {'value': 1, 'text': 'NEUTRAL'}
+        sig_200w = {'value': 1, 'text': 'HOLD'}
+        sig_50w = {'value': 1, 'text': 'HOLD'}
+        sig_fg = {'value': 1, 'text': 'HOLD'}
+        sig_rsi = {'value': 1, 'text': 'HOLD'}
 
-    # Prepare response with both old and new formats
-    response = {
-        # Old format fields for compatibility
+    # Calculate performance stats
+    perf_stats = calculate_performance_stats(data, CONFIG)
+    dca_comparison = calculate_dca_comparison(data)
+
+    # Prepare response
+    response_data = {
+        # Current data
         'current_price': float(data['current_price']) if data['current_price'] else 0,
         'current_sma': current_sma,
         'current_ma_50w': current_ma_50w,
@@ -520,24 +631,31 @@ def api_data():
         'current_ma50w_ratio': current_ma50w_ratio,
         'current_regime': current_regime,
         'timestamp': latest_row['time'].strftime('%Y-%m-%d %H:%M UTC'),
+
+        # Signals
         'current_overall_signal': overall_signal,
         'current_200w_signal': sig_200w,
         'current_50w_signal': sig_50w,
         'current_fg_signal': sig_fg,
         'current_rsi_signal': sig_rsi,
+        'signals': signals,
+
+        # Chart data
         'daily': daily_data,
         'buy_signals': buy_signals,
         'sell_signals': sell_signals,
-        'fgsma_params': CONFIG,  # Keep name for compatibility
+        'historical_signals': historical_signal_data,
 
-        # New format for detailed signal info
-        'signals': signals
+        # Config & stats
+        'config': CONFIG,
+        'performance': perf_stats,
+        'dca_comparison': dca_comparison
     }
 
-    DATA_CACHE['chart_data'] = response
+    DATA_CACHE['chart_data'] = response_data
     DATA_CACHE['last_update'] = now
 
-    json_response = jsonify(response)
+    json_response = jsonify(response_data)
     json_response.headers['Cache-Control'] = 'public, max-age=180'
     return json_response
 
@@ -554,94 +672,112 @@ def index():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    <title>Bitcoin 4-Indicator Strategy</title>
+    <title>BTC Pocojuan</title>
 
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#000000">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="BTC 4-Ind">
+    <meta name="apple-mobile-web-app-title" content="BTC Pocojuan">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <meta name="description" content="4-Indicator trading signals for Bitcoin: 200W SMA, 50W MA, F&G, RSI">
+    <meta name="description" content="Bitcoin Pocojuan Model - Professional trading signals">
 
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-            background: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #fafafa;
             color: #1a1a1a;
             overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-        .container { display: flex; height: 100vh; }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
         .chart-section {
-            width: 70%;
+            flex: 1;
             display: flex;
             flex-direction: column;
-            padding: 24px;
-            background: white;
+            padding: 20px 24px;
+            background: #ffffff;
             overflow-y: auto;
         }
+
         .chart-title {
-            font-size: 28px;
-            font-weight: 700;
-            color: #000;
-            margin-bottom: 20px;
-            letter-spacing: -0.5px;
-        }
-        .chart-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e5e7eb;
-            align-items: center;
-        }
-        .chart-tab {
-            padding: 12px 24px;
-            background: none;
-            border: none;
-            font-size: 14px;
+            font-size: 24px;
             font-weight: 600;
-            color: #6b7280;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            transition: all 0.2s;
-        }
-        .chart-tab:hover {
             color: #000;
+            margin-bottom: 20px;
+            letter-spacing: -0.3px;
         }
-        .chart-tab.active {
-            color: #10b981;
-            border-bottom-color: #10b981;
-        }
-        .time-range-selector {
+
+        .chart-tabs {
             display: flex;
             gap: 8px;
             margin-bottom: 16px;
-            padding: 8px;
-            background: #f8f9fa;
-            border-radius: 12px;
-            justify-content: center;
+            border-bottom: 1px solid #e5e7eb;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+            padding-bottom: 0;
         }
-        .time-range-btn {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid #e5e7eb;
-            background: #ffffff;
-            border-radius: 8px;
+
+        .chart-tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
             font-size: 14px;
-            font-weight: 700;
+            font-weight: 500;
             color: #6b7280;
             cursor: pointer;
-            transition: all 0.2s ease;
-            text-transform: uppercase;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.15s ease;
         }
+
+        .chart-tab:hover { color: #000; }
+        .chart-tab.active {
+            color: #10b981;
+            border-bottom-color: #10b981;
+            font-weight: 600;
+        }
+
+        .time-range-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            padding: 6px;
+            background: #f9fafb;
+            border-radius: 10px;
+            justify-content: center;
+        }
+
+        .time-range-btn {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #6b7280;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
         .time-range-btn:hover {
             background: #f3f4f6;
-            border-color: #10b981;
+            border-color: #d1d5db;
         }
+
         .time-range-btn.active {
             background: #10b981;
             border-color: #10b981;
@@ -650,522 +786,443 @@ def index():
 
         .visibility-toggles {
             display: flex;
-            gap: 16px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 12px;
-            margin-bottom: 16px;
+            gap: 12px;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 10px;
+            margin-bottom: 12px;
             justify-content: center;
             flex-wrap: wrap;
         }
+
         .visibility-toggles label {
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 14px;
-            font-weight: 600;
+            gap: 5px;
+            font-size: 13px;
+            font-weight: 500;
             color: #374151;
             cursor: pointer;
         }
+
         .visibility-toggles input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             cursor: pointer;
         }
+
         .chart-wrapper {
             border-radius: 12px;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
-        .chart-wrapper.hidden {
-            display: none;
-        }
-        #chart { height: 650px; }
-        #signal-chart { height: 650px; }
+
+        .chart-wrapper.hidden { display: none; }
+
+        #chart { height: 600px; }
+        #historical-signals-chart { height: 800px; }
+
         .data-panel {
-            width: 30%;
-            padding: 24px;
+            width: 340px;
+            padding: 20px;
             background: #ffffff;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 16px;
             overflow-y: auto;
             border-left: 1px solid #e5e7eb;
         }
+
         .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .data-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 14px;
+            transition: all 0.15s ease;
+        }
+
+        .data-card:hover {
+            background: #f3f4f6;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .data-label {
+            font-size: 11px;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+
+        .data-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #000;
+            letter-spacing: -0.5px;
+        }
+
+        .data-value.green { color: #059669; }
+        .data-value.red { color: #dc2626; }
+
+        @keyframes flash-green {
+            0%, 100% { background: #f9fafb; }
+            50% { background: #d1fae5; }
+        }
+
+        @keyframes flash-red {
+            0%, 100% { background: #f9fafb; }
+            50% { background: #fee2e2; }
+        }
+
+        .data-card.flash-green { animation: flash-green 400ms ease-out; }
+        .data-card.flash-red { animation: flash-red 400ms ease-out; }
+
+        .signal-card {
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        .signal-card.buy {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            color: #065f46;
+        }
+
+        .signal-card.sell {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            color: #991b1b;
+        }
+
+        .signal-card.hold {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            color: #374151;
+        }
+
+        .signal-date {
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .signal-main {
+            text-align: center;
+            margin: 12px 0;
+        }
+
+        .signal-text {
+            font-size: 40px;
+            font-weight: 800;
+            margin-bottom: 4px;
+            letter-spacing: -1px;
+        }
+
+        .signal-score {
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0.7;
+        }
+
+        .subsignals {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .subsignal {
+            background: rgba(255,255,255,0.4);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .subsignal-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            opacity: 0.7;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .subsignal-value {
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .subsignal-detail {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+        }
+
+        .stat-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #000;
+        }
+
+        .faq-content {
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .faq-hero {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 12px;
+            padding: 32px 28px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+        }
+
+        .faq-hero-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 0 0 12px 0;
+            letter-spacing: -0.5px;
+        }
+
+        .faq-hero-text {
+            font-size: 15px;
+            line-height: 1.6;
+            color: rgba(255,255,255,0.95);
+            margin: 0;
+        }
+
+        .faq-section {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .faq-section-title {
             font-size: 18px;
             font-weight: 600;
             color: #000;
             margin-bottom: 12px;
         }
-        .data-card {
-            background: #f8f9fa;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 16px;
-            transition: all 0.2s;
-        }
-        .data-card:hover {
-            background: #f3f4f6;
-            border-color: #d1d5db;
-        }
-        .data-label {
-            font-size: 12px;
-            color: #6b7280;
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-        .data-value {
-            font-size: 24px;
-            font-weight: 700;
-            color: #000;
-        }
-        .data-value.green { color: #10b981; }
-        .data-value.red { color: #ef4444; }
-        .data-value.orange { color: #000000; }
 
-        /* Price flash animations */
-        @keyframes flash-green-anim {
-            0%, 100% { color: #000; }
-            50% { color: #10b981; font-weight: 700; }
-        }
-        @keyframes flash-red-anim {
-            0%, 100% { color: #000; }
-            50% { color: #ef4444; font-weight: 700; }
-        }
-        .data-value.flash-green {
-            animation: flash-green-anim 600ms ease-in-out;
-        }
-        .data-value.flash-red {
-            animation: flash-red-anim 600ms ease-in-out;
-        }
-
-        .signal-card {
-            border: none;
-            border-radius: 16px;
-            padding: 24px;
-            transition: all 0.3s ease;
-        }
-        .signal-card.buy {
-            background: #d1fae5;
-            color: #065f46;
-            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.2);
-        }
-        .signal-card.sell {
-            background: #fecdd3;
-            color: #881337;
-            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.2);
-        }
-        .signal-card.hold {
-            background: #e5e7eb;
-            color: #374151;
-            box-shadow: 0 10px 30px rgba(107, 114, 128, 0.2);
-        }
-        .signal-date {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            opacity: 0.9;
-        }
-        .signal-main {
-            text-align: center;
-            margin: 20px 0;
-        }
-        .signal-text {
-            font-size: 48px;
-            font-weight: 900;
-            margin-bottom: 8px;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-        .signal-score {
-            font-size: 16px;
-            font-weight: 600;
-            opacity: 0.8;
-        }
-        .subsignals {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .subsignal {
-            background: rgba(255,255,255,0.3);
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
-        }
-        .subsignal-label {
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            opacity: 0.8;
-            margin-bottom: 6px;
-        }
-        .subsignal-value {
-            font-size: 16px;
-            font-weight: 700;
-        }
-        .signal-strength-bar {
-            margin-top: 8px;
-            height: 4px;
-            background: rgba(0,0,0,0.1);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        .signal-strength-fill {
-            height: 100%;
-            border-radius: 2px;
-            transition: width 0.5s ease, background 0.3s ease;
-        }
-        .faq-content {
-            padding: 24px;
-            max-width: 1000px;
-            margin: 0 auto;
-        }
-        .faq-hero {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 16px;
-            padding: 40px 32px;
-            margin-bottom: 32px;
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-            position: relative;
-            overflow: hidden;
-        }
-        .faq-hero::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: heroGlow 10s ease-in-out infinite;
-        }
-        @keyframes heroGlow {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(-20px, -20px) scale(1.1); }
-        }
-        .faq-hero-title {
-            font-size: 32px;
-            font-weight: 800;
-            color: #ffffff;
-            margin: 0 0 16px 0;
-            text-align: center;
-            letter-spacing: -0.5px;
-            position: relative;
-            z-index: 1;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-        .faq-hero-text {
-            font-size: 16px;
-            line-height: 1.8;
-            color: rgba(255,255,255,0.95);
-            margin: 0;
-            text-align: center;
-            position: relative;
-            z-index: 1;
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        .faq-hero-text strong {
-            color: #ffffff;
-            font-weight: 700;
-        }
-        .faq-section {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .faq-section-title {
-            font-size: 20px;
-            font-weight: 700;
-            color: #000;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
         .faq-section-content {
             color: #374151;
             line-height: 1.6;
+            font-size: 14px;
         }
-        .faq-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            margin-top: 12px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+
+        .faq-section-content p {
+            margin-bottom: 12px;
         }
-        .faq-table th {
-            text-align: left;
-            padding: 14px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
+
+        .faq-section-content strong {
+            color: #000;
             font-weight: 600;
-            color: #ffffff;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
-        .faq-table th:first-child {
-            border-top-left-radius: 8px;
+
+        .indicator-list {
+            margin: 16px 0;
         }
-        .faq-table th:last-child {
-            border-top-right-radius: 8px;
+
+        .indicator-item {
+            margin-bottom: 16px;
+            padding-left: 16px;
+            border-left: 3px solid #10b981;
         }
-        .faq-table td {
-            padding: 12px 16px;
+
+        .indicator-item h4 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #000;
+            margin-bottom: 6px;
+        }
+
+        .indicator-item p {
+            font-size: 14px;
+            color: #6b7280;
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        .comparison-card {
+            background: #f9fafb;
             border: 1px solid #e5e7eb;
-            border-left: none;
-            border-right: none;
-            color: #374151;
-            background: #ffffff;
-            transition: background 0.2s ease;
+            border-radius: 10px;
+            padding: 16px;
+            margin: 16px 0;
         }
-        .faq-table tr:hover td {
-            background: #f8f9fa;
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
         }
-        .faq-table tbody tr:last-child td {
-            border-bottom: none;
+
+        .comparison-item {
+            text-align: center;
         }
-        .faq-table tbody tr:last-child td:first-child {
-            border-bottom-left-radius: 8px;
+
+        .comparison-label {
+            font-size: 12px;
+            color: #6b7280;
+            font-weight: 600;
+            margin-bottom: 6px;
         }
-        .faq-table tbody tr:last-child td:last-child {
-            border-bottom-right-radius: 8px;
+
+        .comparison-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #10b981;
         }
+
         .loading {
             position: fixed;
             inset: 0;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.98);
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 1000;
             flex-direction: column;
-            gap: 20px;
+            gap: 16px;
         }
+
         .loading.hidden { display: none; }
+
         .spinner {
-            width: 50px;
-            height: 50px;
+            width: 40px;
+            height: 40px;
             border: 3px solid #e5e7eb;
             border-top-color: #10b981;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-text { color: #6b7280; font-size: 14px; font-weight: 500; }
 
-        /* MOBILE RESPONSIVE STYLES */
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-text {
+            color: #6b7280;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .last-update {
+            font-size: 11px;
+            color: #6b7280;
+            text-align: center;
+            margin-top: 8px;
+        }
+
+        /* MOBILE RESPONSIVE */
         @media (max-width: 768px) {
-            body {
-                overflow-x: hidden;
-                overflow-y: auto;
-            }
+            body { overflow-y: auto; }
 
             .container {
                 flex-direction: column;
                 min-height: 100vh;
                 height: auto;
-                display: flex;
             }
 
             .data-panel {
                 width: 100%;
-                padding: 12px;
+                padding: 16px;
                 border-left: none;
                 border-bottom: 1px solid #e5e7eb;
-                flex-shrink: 0;
                 order: -1;
             }
 
-            .section-title {
-                font-size: 15px;
-                margin-bottom: 10px;
-                font-weight: 700;
-            }
-
-            .signal-card {
-                padding: 16px;
-                margin-bottom: 12px;
-                border-radius: 12px;
-            }
-
-            .signal-date {
-                font-size: 12px;
-                margin-bottom: 8px;
-                opacity: 0.8;
-            }
-
-            .signal-text {
-                font-size: 32px;
-                font-weight: 800;
-                margin-bottom: 12px;
-                text-align: center;
-            }
+            .signal-card { padding: 16px; }
+            .signal-text { font-size: 32px; }
 
             .subsignals {
-                display: grid;
                 grid-template-columns: 1fr 1fr;
                 gap: 8px;
             }
 
-            .subsignal {
-                padding: 12px;
-                border-radius: 8px;
-                text-align: center;
-            }
-
-            .subsignal-label {
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                margin-bottom: 4px;
-            }
-
-            .subsignal-value {
-                font-size: 18px;
-                font-weight: 700;
-            }
-
-            .data-card {
-                padding: 12px;
-                margin-bottom: 8px;
-                border-radius: 8px;
-                background: #f9fafb;
-                display: inline-block;
-                width: calc(50% - 6px);
-                margin-right: 6px;
-                vertical-align: top;
-            }
-
-            .data-card:nth-child(2n) {
-                margin-right: 0;
-            }
-
-            .data-label {
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                opacity: 0.6;
-                margin-bottom: 4px;
-            }
-
-            .data-value {
-                font-size: 20px;
-                font-weight: 800;
+            /* RSI centering fix */
+            .subsignals .subsignal:nth-child(5):last-child {
+                grid-column: 1 / -1;
+                max-width: 50%;
+                margin: 0 auto;
             }
 
             .chart-section {
                 width: 100%;
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                padding: 8px;
-                overflow: hidden;
+                padding: 12px;
             }
 
-            .chart-title {
-                display: none;
-            }
+            .chart-title { display: none; }
 
-            .chart-tabs {
-                display: flex;
-                gap: 4px;
-                margin-bottom: 6px;
-                flex-shrink: 0;
-            }
+            #chart { height: 500px !important; }
+            #historical-signals-chart { height: 700px !important; }
 
-            .chart-tab {
-                flex: 1;
-                padding: 8px 4px;
-                font-size: 12px;
-                text-align: center;
-                font-weight: 600;
-                border-radius: 6px;
-            }
-
-            .time-range-selector {
-                display: flex;
-                gap: 6px;
-                padding: 8px;
-                margin-bottom: 8px;
-                flex-shrink: 0;
-            }
-
-            .time-range-btn {
-                flex: 1;
-                padding: 10px 8px;
-                font-size: 13px;
-                font-weight: 700;
-            }
-
-            #chart, #signal-chart {
-                flex: 1 !important;
-                height: auto !important;
-                min-height: 600px !important;
-                max-height: none !important;
-            }
-
-            .faq-content {
-                padding: 16px;
-            }
-
-            .faq-section {
-                padding: 16px;
-                margin-bottom: 12px;
-            }
-
-            .faq-section-title {
-                font-size: 18px;
-                margin-bottom: 12px;
-            }
-
-            .faq-table {
-                font-size: 12px;
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-
-            .faq-table th,
-            .faq-table td {
-                padding: 8px;
-                white-space: nowrap;
-            }
+            .faq-content { padding: 16px; }
         }
     </style>
 </head>
 <body>
     <div class="loading" id="loading">
         <div class="spinner"></div>
-        <div class="loading-text">Loading data...</div>
+        <div class="loading-text">Loading Pocojuan Model...</div>
     </div>
 
     <div class="container">
         <div class="chart-section">
-            <h1 class="chart-title">Bitcoin 4-Indicator Strategy</h1>
+            <h1 class="chart-title">Bitcoin Pocojuan Model</h1>
 
             <div class="chart-tabs">
                 <button class="chart-tab active" onclick="switchChart('price')">Price Chart</button>
                 <button class="chart-tab" onclick="switchChart('signals')">Historical Signals</button>
-                <button class="chart-tab" onclick="switchChart('faq')">FAQ</button>
+                <button class="chart-tab" onclick="switchChart('faq')">How It Works</button>
             </div>
 
-            <div class="time-range-selector">
+            <div class="time-range-selector" id="time-range-selector">
                 <button class="time-range-btn" onclick="setTimeRange('1M')">1M</button>
                 <button class="time-range-btn" onclick="setTimeRange('3M')">3M</button>
                 <button class="time-range-btn" onclick="setTimeRange('1Y')">1Y</button>
-                <button class="time-range-btn active" onclick="setTimeRange('ALL')">All Time</button>
+                <button class="time-range-btn active" onclick="setTimeRange('ALL')">All</button>
             </div>
-            <div class="visibility-toggles">
+
+            <div class="visibility-toggles" id="visibility-toggles">
                 <label><input type="checkbox" id="vis-price" checked onchange="toggleVisibility('price')"> Price</label>
                 <label><input type="checkbox" id="vis-sma" checked onchange="toggleVisibility('sma')"> 200W SMA</label>
                 <label><input type="checkbox" id="vis-50w" checked onchange="toggleVisibility('50w')"> 50W MA</label>
@@ -1175,13 +1232,13 @@ def index():
             </div>
 
             <div class="chart-wrapper" id="chart"></div>
-            <div class="chart-wrapper hidden" id="signal-chart"></div>
+            <div class="chart-wrapper hidden" id="historical-signals-chart"></div>
             <div class="chart-wrapper hidden" id="faq-content"></div>
         </div>
 
         <div class="data-panel">
             <div>
-                <div class="section-title">4-Indicator Signal</div>
+                <div class="section-title">Current Signal</div>
                 <div class="signal-card" id="signal-card">
                     <div class="signal-date" id="signal-date">--</div>
                     <div class="signal-main">
@@ -1192,57 +1249,74 @@ def index():
                         <div class="subsignal">
                             <div class="subsignal-label">200W SMA</div>
                             <div class="subsignal-value" id="sig-200w">--</div>
-                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-200w-val">--</div>
+                            <div class="subsignal-detail" id="sig-200w-val">--</div>
                         </div>
                         <div class="subsignal">
                             <div class="subsignal-label">50W MA</div>
                             <div class="subsignal-value" id="sig-50w">--</div>
-                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-50w-val">--</div>
+                            <div class="subsignal-detail" id="sig-50w-val">--</div>
                         </div>
                         <div class="subsignal">
-                            <div class="subsignal-label">F&G EMA</div>
+                            <div class="subsignal-label">F&G</div>
                             <div class="subsignal-value" id="sig-fg">--</div>
-                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-fg-val">--</div>
+                            <div class="subsignal-detail" id="sig-fg-val">--</div>
                         </div>
                         <div class="subsignal">
                             <div class="subsignal-label">RSI</div>
                             <div class="subsignal-value" id="sig-rsi">--</div>
-                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;" id="sig-rsi-val">--</div>
+                            <div class="subsignal-detail" id="sig-rsi-val">--</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div>
+                <div class="section-title">Performance Stats</div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Return</div>
+                        <div class="stat-value green" id="total-return">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Win Rate</div>
+                        <div class="stat-value" id="win-rate">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Trades</div>
+                        <div class="stat-value" id="total-trades">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
                 <div class="section-title">Live Market Data</div>
-                <div class="data-card">
+                <div class="data-card" id="price-card">
                     <div class="data-label">Bitcoin Price</div>
                     <div class="data-value" id="price">$--,---</div>
                 </div>
                 <div class="data-card">
                     <div class="data-label">200-Week SMA</div>
-                    <div class="data-value orange" id="sma-200w">$--,---</div>
+                    <div class="data-value" id="sma-200w">$--,---</div>
                 </div>
                 <div class="data-card">
                     <div class="data-label">50-Week MA</div>
-                    <div class="data-value orange" id="ma-50w">$--,---</div>
+                    <div class="data-value" id="ma-50w">$--,---</div>
                 </div>
                 <div class="data-card">
-                    <div class="data-label">Fear & Greed Index</div>
+                    <div class="data-label">Fear & Greed</div>
                     <div class="data-value" id="fg">--</div>
                 </div>
                 <div class="data-card">
-                    <div class="data-label">RSI (25-day)</div>
+                    <div class="data-label">RSI (25d)</div>
                     <div class="data-value" id="rsi">--</div>
                 </div>
+                <div class="last-update" id="last-update">Last update: --</div>
             </div>
         </div>
     </div>
 
     <script>
         let chartData = null;
-        let currentLayout = null;
-        let currentSignalLayout = null;
         let currentChartView = 'price';
         let currentTimeRange = 'ALL';
         let showPrice = true;
@@ -1255,17 +1329,12 @@ def index():
 
         function setTimeRange(range) {
             currentTimeRange = range;
-            document.querySelectorAll('.time-range-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
+            document.querySelectorAll('.time-range-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
 
             if (chartData) {
-                if (currentChartView === 'price') {
-                    renderChart(chartData);
-                } else if (currentChartView === 'signals') {
-                    renderSignalChart(chartData);
-                }
+                if (currentChartView === 'price') renderChart(chartData);
+                else if (currentChartView === 'signals') renderHistoricalSignals(chartData);
             }
         }
 
@@ -1277,13 +1346,7 @@ def index():
             if (element === 'rsi') showRSI = document.getElementById('vis-rsi').checked;
             if (element === 'volume') showVolume = document.getElementById('vis-volume').checked;
 
-            if (chartData) {
-                if (currentChartView === 'price') {
-                    renderChart(chartData);
-                } else if (currentChartView === 'signals') {
-                    renderSignalChart(chartData);
-                }
-            }
+            if (chartData && currentChartView === 'price') renderChart(chartData);
         }
 
         function getCutoffDate() {
@@ -1291,15 +1354,9 @@ def index():
             const now = new Date();
             const cutoff = new Date(now);
             switch(currentTimeRange) {
-                case '1M':
-                    cutoff.setMonth(cutoff.getMonth() - 1);
-                    break;
-                case '3M':
-                    cutoff.setMonth(cutoff.getMonth() - 3);
-                    break;
-                case '1Y':
-                    cutoff.setFullYear(cutoff.getFullYear() - 1);
-                    break;
+                case '1M': cutoff.setMonth(cutoff.getMonth() - 1); break;
+                case '3M': cutoff.setMonth(cutoff.getMonth() - 3); break;
+                case '1Y': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
             }
             return cutoff;
         }
@@ -1307,9 +1364,10 @@ def index():
         function switchChart(view) {
             currentChartView = view;
             const priceChart = document.getElementById('chart');
-            const signalChart = document.getElementById('signal-chart');
+            const signalChart = document.getElementById('historical-signals-chart');
             const faqContent = document.getElementById('faq-content');
-            const timeRangeSelector = document.querySelector('.time-range-selector');
+            const timeRangeSelector = document.getElementById('time-range-selector');
+            const visibilityToggles = document.getElementById('visibility-toggles');
             const tabs = document.querySelectorAll('.chart-tab');
 
             tabs.forEach(tab => tab.classList.remove('active'));
@@ -1318,7 +1376,8 @@ def index():
                 priceChart.classList.remove('hidden');
                 signalChart.classList.add('hidden');
                 faqContent.classList.add('hidden');
-                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
+                timeRangeSelector.style.display = 'flex';
+                visibilityToggles.style.display = 'flex';
                 tabs[0].classList.add('active');
                 if (chartData) {
                     renderChart(chartData);
@@ -1328,21 +1387,54 @@ def index():
                 priceChart.classList.add('hidden');
                 signalChart.classList.remove('hidden');
                 faqContent.classList.add('hidden');
-                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
+                timeRangeSelector.style.display = 'flex';
+                visibilityToggles.style.display = 'none';
                 tabs[1].classList.add('active');
                 if (chartData) {
-                    renderSignalChart(chartData);
-                    setTimeout(() => Plotly.Plots.resize('signal-chart'), 100);
+                    renderHistoricalSignals(chartData);
+                    setTimeout(() => Plotly.Plots.resize('historical-signals-chart'), 100);
                 }
             } else if (view === 'faq') {
                 priceChart.classList.add('hidden');
                 signalChart.classList.add('hidden');
                 faqContent.classList.remove('hidden');
-                if (timeRangeSelector) timeRangeSelector.style.display = 'none';
+                timeRangeSelector.style.display = 'none';
+                visibilityToggles.style.display = 'none';
                 tabs[2].classList.add('active');
-                if (chartData) {
-                    renderFAQ(chartData);
+                if (chartData) renderFAQ(chartData);
+            }
+        }
+
+        async function updateLivePrice() {
+            try {
+                const res = await fetch('/api/price');
+                const data = await res.json();
+                if (data.price && !data.error) {
+                    const priceCard = document.getElementById('price-card');
+                    const priceElement = document.getElementById('price');
+                    const newPrice = data.price;
+                    const formattedPrice = '$' + newPrice.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+
+                    priceElement.textContent = formattedPrice;
+
+                    if (previousPrice !== null && previousPrice !== newPrice) {
+                        priceCard.classList.remove('flash-green', 'flash-red');
+                        void priceCard.offsetWidth;
+
+                        if (newPrice > previousPrice) {
+                            priceCard.classList.add('flash-green');
+                        } else if (newPrice < previousPrice) {
+                            priceCard.classList.add('flash-red');
+                        }
+
+                        setTimeout(() => {
+                            priceCard.classList.remove('flash-green', 'flash-red');
+                        }, 400);
+                    }
+                    previousPrice = newPrice;
                 }
+            } catch (err) {
+                console.error('Error updating live price:', err);
             }
         }
 
@@ -1357,16 +1449,18 @@ def index():
                 }
 
                 chartData = data;
-                updateLiveData(data);
+                updateDataPanel(data);
                 updateSignalCard(data);
+                updatePerformanceStats(data);
 
-                if (currentChartView === 'price') {
-                    renderChart(data);
-                } else if (currentChartView === 'signals') {
-                    renderSignalChart(data);
-                }
+                if (currentChartView === 'price') renderChart(data);
+                else if (currentChartView === 'signals') renderHistoricalSignals(data);
+                else if (currentChartView === 'faq') renderFAQ(data);
 
                 document.getElementById('loading').classList.add('hidden');
+
+                const now = new Date();
+                document.getElementById('last-update').textContent = `Last update: ${now.toLocaleTimeString()}`;
             } catch (err) {
                 console.error('Error loading data:', err);
                 document.getElementById('loading').classList.add('hidden');
@@ -1377,7 +1471,6 @@ def index():
             try {
                 if (!data.daily || data.daily.length === 0) return;
 
-                // Apply time range filter
                 const cutoffDate = getCutoffDate();
                 let filteredDaily = data.daily;
                 if (cutoffDate) {
@@ -1394,9 +1487,9 @@ def index():
                         high: filteredDaily.map(d => d.high),
                         low: filteredDaily.map(d => d.low),
                         close: filteredDaily.map(d => d.close),
-                        name: 'BTC/USD',
-                        increasing: {line: {color: '#10b981'}},
-                        decreasing: {line: {color: '#ef4444'}},
+                        name: 'BTC',
+                        increasing: {line: {color: '#10b981', width: 1}},
+                        decreasing: {line: {color: '#ef4444', width: 1}},
                         yaxis: 'y',
                         showlegend: true
                     });
@@ -1408,9 +1501,9 @@ def index():
                         x: filteredDaily.map(d => d.time),
                         y: filteredDaily.map(d => d.volume),
                         name: 'Volume',
-                        marker: {color: filteredDaily.map(d => d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')},
+                        marker: {color: filteredDaily.map(d => d.close >= d.open ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)')},
                         yaxis: 'y2',
-                        showlegend: true
+                        showlegend: false
                     });
                 }
 
@@ -1422,7 +1515,7 @@ def index():
                         x: smaData.map(d => d.time),
                         y: smaData.map(d => d.sma_200w),
                         name: '200W SMA',
-                        line: {color: '#f59e0b', width: 2},
+                        line: {color: '#f59e0b', width: 1.5},
                         yaxis: 'y',
                         showlegend: true
                     });
@@ -1436,7 +1529,7 @@ def index():
                         x: ma50Data.map(d => d.time),
                         y: ma50Data.map(d => d.ma_50w),
                         name: '50W MA',
-                        line: {color: '#3b82f6', width: 2},
+                        line: {color: '#3b82f6', width: 1.5},
                         yaxis: 'y',
                         showlegend: true
                     });
@@ -1449,8 +1542,8 @@ def index():
                         mode: 'lines',
                         x: fgData.map(d => d.time),
                         y: fgData.map(d => d.fg_index),
-                        name: 'Fear & Greed',
-                        line: {color: '#8b5cf6', width: 2, shape: 'spline', smoothing: 0.3},
+                        name: 'F&G',
+                        line: {color: '#8b5cf6', width: 1.5},
                         yaxis: 'y3',
                         showlegend: true
                     });
@@ -1464,7 +1557,7 @@ def index():
                         x: rsiData.map(d => d.time),
                         y: rsiData.map(d => d.rsi),
                         name: 'RSI',
-                        line: {color: '#ec4899', width: 2},
+                        line: {color: '#ec4899', width: 1.5},
                         yaxis: 'y3',
                         showlegend: true
                     });
@@ -1472,21 +1565,18 @@ def index():
 
                 const layout = {
                     paper_bgcolor: '#ffffff',
-                    plot_bgcolor: '#f8f9fa',
-                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'},
+                    plot_bgcolor: '#fafafa',
+                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif', size: 11},
                     showlegend: true,
                     legend: {
-                        font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
-                        bgcolor: 'rgba(248,249,250,0.95)',
-                        bordercolor: '#d1d5db',
-                        borderwidth: 1,
-                        itemclick: false,
-                        itemdoubleclick: false,
                         orientation: 'h',
                         x: 0,
-                        y: 1.08,
+                        y: 1.05,
                         xanchor: 'left',
-                        yanchor: 'top'
+                        yanchor: 'bottom',
+                        bgcolor: 'rgba(255,255,255,0.9)',
+                        bordercolor: '#e5e7eb',
+                        borderwidth: 1
                     },
                     hovermode: 'x unified',
                     dragmode: false,
@@ -1494,277 +1584,332 @@ def index():
                         type: 'date',
                         gridcolor: '#e5e7eb',
                         fixedrange: true,
-                        autorange: true,
                         rangeslider: {visible: false}
                     },
                     yaxis: {
-                        title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
+                        title: {text: 'Price (USD)', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
                         side: 'left',
-                        domain: [0.25, 1],
+                        domain: [0.2, 1],
                         fixedrange: true,
-                        autorange: true,
-                        type: 'linear'
+                        type: 'log'
                     },
                     yaxis2: {
                         gridcolor: 'transparent',
                         showticklabels: false,
-                        domain: [0, 0.2],
-                        fixedrange: true,
-                        autorange: true
+                        domain: [0, 0.15],
+                        fixedrange: true
                     },
                     yaxis3: {
-                        title: {text: 'F&G / RSI', font: {size: 12, color: '#6b7280'}},
-                        gridcolor: 'transparent',
+                        title: {text: 'Indicators', font: {size: 11, color: '#6b7280'}},
+                        gridcolor: '#f3f4f6',
                         side: 'right',
                         overlaying: 'y',
-                        fixedrange: true,
-                        autorange: true
+                        fixedrange: true
                     },
-                    margin: {l: 60, r: 80, t: 60, b: 60}
+                    margin: {l: 60, r: 60, t: 40, b: 60}
                 };
 
-                const config = {
-                    responsive: true,
-                    displayModeBar: false,
-                    displaylogo: false,
-                    staticPlot: true
-                };
-
-                Plotly.newPlot('chart', traces, layout, config);
-                currentLayout = layout;
+                Plotly.newPlot('chart', traces, layout, {responsive: true, displayModeBar: false, staticPlot: true});
             } catch (err) {
                 console.error('Error rendering chart:', err);
             }
         }
 
-        function renderSignalChart(data) {
+        function renderHistoricalSignals(data) {
             try {
-                if (!data.daily || data.daily.length === 0) return;
+                if (!data.historical_signals || data.historical_signals.length === 0) return;
 
-                // Apply time range filter
                 const cutoffDate = getCutoffDate();
-                let filteredDaily = data.daily;
-                let filteredBuys = data.buy_signals;
-                let filteredSells = data.sell_signals;
-
+                let filtered = data.historical_signals;
                 if (cutoffDate) {
-                    filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
-
-                    const buyDates = [];
-                    const buyPrices = [];
-                    for (let i = 0; i < data.buy_signals.dates.length; i++) {
-                        if (new Date(data.buy_signals.dates[i]) >= cutoffDate) {
-                            buyDates.push(data.buy_signals.dates[i]);
-                            buyPrices.push(data.buy_signals.prices[i]);
-                        }
-                    }
-                    filteredBuys = {dates: buyDates, prices: buyPrices};
-
-                    const sellDates = [];
-                    const sellPrices = [];
-                    for (let i = 0; i < data.sell_signals.dates.length; i++) {
-                        if (new Date(data.sell_signals.dates[i]) >= cutoffDate) {
-                            sellDates.push(data.sell_signals.dates[i]);
-                            sellPrices.push(data.sell_signals.prices[i]);
-                        }
-                    }
-                    filteredSells = {dates: sellDates, prices: sellPrices};
+                    filtered = data.historical_signals.filter(d => new Date(d.time) >= cutoffDate);
                 }
 
-                const traces = [];
+                const times = filtered.map(d => d.time);
 
-                // BTC price line
-                traces.push({
+                // Individual weighted signals
+                const trace200w = {
                     type: 'scatter',
                     mode: 'lines',
-                    x: filteredDaily.map(d => d.time),
-                    y: filteredDaily.map(d => d.close),
-                    name: 'BTC Price',
-                    line: {color: '#1f2937', width: 1.5},
-                    showlegend: true
-                });
+                    x: times,
+                    y: filtered.map(d => d.weighted_200w),
+                    name: '200W SMA',
+                    line: {color: '#f59e0b', width: 1.5},
+                    yaxis: 'y',
+                    xaxis: 'x'
+                };
 
-                // Buy signals
-                if (filteredBuys.dates.length > 0) {
-                    traces.push({
-                        type: 'scatter',
-                        mode: 'markers',
-                        x: filteredBuys.dates,
-                        y: filteredBuys.prices,
-                        name: `Buy (${filteredBuys.dates.length})`,
-                        marker: {color: '#10b981', size: 8, symbol: 'triangle-up', opacity: 0.7},
-                        showlegend: true
-                    });
-                }
+                const trace50w = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: times,
+                    y: filtered.map(d => d.weighted_50w),
+                    name: '50W MA',
+                    line: {color: '#3b82f6', width: 1.5},
+                    yaxis: 'y',
+                    xaxis: 'x'
+                };
 
-                // Sell signals
-                if (filteredSells.dates.length > 0) {
-                    traces.push({
-                        type: 'scatter',
-                        mode: 'markers',
-                        x: filteredSells.dates,
-                        y: filteredSells.prices,
-                        name: `Sell (${filteredSells.dates.length})`,
-                        marker: {color: '#ef4444', size: 8, symbol: 'triangle-down', opacity: 0.7},
-                        showlegend: true
-                    });
-                }
+                const traceFG = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: times,
+                    y: filtered.map(d => d.weighted_fg),
+                    name: 'F&G',
+                    line: {color: '#8b5cf6', width: 1.5},
+                    yaxis: 'y',
+                    xaxis: 'x'
+                };
+
+                const traceRSI = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: times,
+                    y: filtered.map(d => d.weighted_rsi),
+                    name: 'RSI',
+                    line: {color: '#ec4899', width: 1.5},
+                    yaxis: 'y',
+                    xaxis: 'x'
+                };
+
+                // Combined signal
+                const traceCombined = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: times,
+                    y: filtered.map(d => d.combined),
+                    name: 'Combined',
+                    line: {color: '#1f2937', width: 2},
+                    yaxis: 'y2',
+                    xaxis: 'x2',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(107,114,128,0.1)'
+                };
+
+                // Buy/Sell threshold lines
+                const buyThreshold = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: [times[0], times[times.length - 1]],
+                    y: [2, 2],
+                    name: 'Buy Threshold',
+                    line: {color: '#10b981', width: 1.5, dash: 'dash'},
+                    yaxis: 'y2',
+                    xaxis: 'x2',
+                    showlegend: false
+                };
+
+                const sellThreshold = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: [times[0], times[times.length - 1]],
+                    y: [-2, -2],
+                    name: 'Sell Threshold',
+                    line: {color: '#ef4444', width: 1.5, dash: 'dash'},
+                    yaxis: 'y2',
+                    xaxis: 'x2',
+                    showlegend: false
+                };
+
+                // Market regime
+                const regimeColors = filtered.map(d => d.regime === 'BULL' ? 1 : -1);
+                const traceRegime = {
+                    type: 'bar',
+                    x: times,
+                    y: regimeColors.map(() => 1),
+                    name: 'Regime',
+                    marker: {
+                        color: regimeColors.map(r => r === 1 ? '#10b981' : '#ef4444')
+                    },
+                    yaxis: 'y3',
+                    xaxis: 'x3',
+                    showlegend: false
+                };
 
                 const layout = {
                     paper_bgcolor: '#ffffff',
-                    plot_bgcolor: '#f8f9fa',
-                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'},
+                    plot_bgcolor: '#fafafa',
+                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, sans-serif', size: 11},
                     showlegend: true,
                     legend: {
-                        font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
-                        bgcolor: 'rgba(248,249,250,0.95)',
-                        bordercolor: '#d1d5db',
-                        borderwidth: 1,
                         orientation: 'h',
                         x: 0,
-                        y: 1.08,
+                        y: 1.02,
                         xanchor: 'left',
-                        yanchor: 'top'
+                        yanchor: 'bottom'
                     },
-                    hovermode: 'closest',
+                    hovermode: 'x unified',
                     dragmode: false,
+
                     xaxis: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
-                        fixedrange: true,
-                        autorange: true
+                        domain: [0, 1],
+                        anchor: 'y',
+                        fixedrange: true
                     },
                     yaxis: {
-                        title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
+                        title: {text: 'Weighted Signals', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        fixedrange: true,
-                        autorange: true,
-                        type: 'linear'
+                        domain: [0.7, 1],
+                        fixedrange: true
                     },
+
+                    xaxis2: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y2',
+                        fixedrange: true
+                    },
+                    yaxis2: {
+                        title: {text: 'Combined Signal', font: {size: 11, color: '#6b7280'}},
+                        gridcolor: '#e5e7eb',
+                        domain: [0.35, 0.65],
+                        fixedrange: true
+                    },
+
+                    xaxis3: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y3',
+                        fixedrange: true
+                    },
+                    yaxis3: {
+                        title: {text: 'Regime', font: {size: 11, color: '#6b7280'}},
+                        gridcolor: 'transparent',
+                        domain: [0, 0.3],
+                        fixedrange: true,
+                        showticklabels: false
+                    },
+
                     margin: {l: 60, r: 40, t: 60, b: 60}
                 };
 
-                const config = {
-                    responsive: true,
-                    displayModeBar: false,
-                    displaylogo: false,
-                    staticPlot: true
-                };
-
-                Plotly.newPlot('signal-chart', traces, layout, config);
-                currentSignalLayout = layout;
+                const traces = [trace200w, trace50w, traceFG, traceRSI, traceCombined, buyThreshold, sellThreshold, traceRegime];
+                Plotly.newPlot('historical-signals-chart', traces, layout, {responsive: true, displayModeBar: false, staticPlot: true});
             } catch (err) {
-                console.error('Error rendering signal chart:', err);
+                console.error('Error rendering historical signals:', err);
             }
         }
 
         function renderFAQ(data) {
             const faqDiv = document.getElementById('faq-content');
 
-            if (!data.signals || !data.fgsma_params) {
+            if (!data.signals || !data.config) {
                 faqDiv.innerHTML = '<div class="faq-content"><p>Loading...</p></div>';
                 return;
             }
 
             const signals = data.signals;
-            const config = data.fgsma_params;
+            const config = data.config;
             const p = config.parameters;
+            const dca = data.dca_comparison || {};
 
             faqDiv.innerHTML = `
                 <div class="faq-content">
                     <div class="faq-hero">
-                        <h2 class="faq-hero-title">How the 4-Indicator Strategy Works</h2>
+                        <h2 class="faq-hero-title">Bitcoin Pocojuan Model</h2>
                         <p class="faq-hero-text">
-                            This optimized strategy combines <strong>200-week SMA</strong> (with decay),
-                            <strong>50-week MA</strong> (regime-based), <strong>Fear & Greed EMA</strong>,
-                            and <strong>RSI</strong> to generate high-conviction signals. Each indicator provides
-                            a +1 (BUY), 0 (NEUTRAL), or -1 (SELL) signal, weighted by their optimized importance.
-                            Combined score ≥2 = BUY, ≤-2 = SELL, otherwise HOLD.
+                            A professional trading system combining four optimized technical indicators
+                            to generate high-conviction buy and sell signals for Bitcoin.
                         </p>
                     </div>
 
                     <div class="faq-section">
-                        <div class="faq-section-title">📊 Indicator Thresholds</div>
+                        <div class="faq-section-title">How It Works</div>
                         <div class="faq-section-content">
-                            <table class="faq-table">
-                                <thead>
-                                    <tr>
-                                        <th>Indicator</th>
-                                        <th>Buy Threshold</th>
-                                        <th>Sell Threshold</th>
-                                        <th>Weight</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td><strong>200W SMA Ratio</strong></td>
-                                        <td>&lt; ${signals['200w'].buy_threshold}</td>
-                                        <td>&gt; ${signals['200w'].sell_threshold}</td>
-                                        <td>${signals['200w'].weight}x</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>50W MA (Bull)</strong></td>
-                                        <td>&lt; ${p.ma_50w.bull_supp.toFixed(2)}</td>
-                                        <td>&gt; ${p.ma_50w.bull_ext.toFixed(2)}</td>
-                                        <td>${signals['50w'].weight}x</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>50W MA (Bear)</strong></td>
-                                        <td>&lt; ${p.ma_50w.bear_deep.toFixed(2)}</td>
-                                        <td>&gt; ${p.ma_50w.bear_res.toFixed(2)}</td>
-                                        <td>${signals['50w'].weight}x</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>F&G EMA (${p.fg.ema_period}d)</strong></td>
-                                        <td>&lt; ${signals.fg.buy_threshold}</td>
-                                        <td>&gt; ${signals.fg.sell_threshold}</td>
-                                        <td>${signals.fg.weight}x</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>RSI (${p.rsi.period}d)</strong></td>
-                                        <td>&lt; ${signals.rsi.buy_threshold}</td>
-                                        <td>&gt; ${signals.rsi.sell_threshold}</td>
-                                        <td>${signals.rsi.weight}x</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                            <p>The Pocojuan Model combines four technical indicators, each providing a signal of +1 (BUY), 0 (HOLD), or -1 (SELL). These signals are weighted by their optimized importance and combined into a single score.</p>
 
-                            <div style="margin-top: 20px;">
-                                <p><strong>Note:</strong> 200W SMA thresholds decay exponentially at ${(p.sma_200w.decay * 100).toFixed(1)}% per year to account for Bitcoin's maturing market.</p>
-                                <p><strong>Performance:</strong> ${config.total_return.toFixed(0)}% total return in backtesting.</p>
+                            <p><strong>Signal Rules:</strong></p>
+                            <ul style="margin: 12px 0; padding-left: 20px;">
+                                <li>Combined Score ≥ +2.0 → <strong>BUY</strong></li>
+                                <li>Combined Score ≤ -2.0 → <strong>SELL</strong></li>
+                                <li>Otherwise → <strong>HOLD</strong></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="faq-section">
+                        <div class="faq-section-title">The Four Indicators</div>
+                        <div class="faq-section-content">
+                            <div class="indicator-list">
+                                <div class="indicator-item">
+                                    <h4>200-Week SMA (Weight: ${signals['200w'].weight}x)</h4>
+                                    <p>A long-term moving average that identifies major support levels. The thresholds decay over time as Bitcoin matures. Signals BUY when price is significantly below the SMA.</p>
+                                </div>
+
+                                <div class="indicator-item">
+                                    <h4>50-Week MA Regime (Weight: ${signals['50w'].weight}x)</h4>
+                                    <p>Detects bull/bear market regimes and adjusts thresholds accordingly. In bull markets, it identifies overextension. In bear markets, it finds deep value opportunities.</p>
+                                </div>
+
+                                <div class="indicator-item">
+                                    <h4>Fear & Greed EMA (Weight: ${signals.fg.weight}x)</h4>
+                                    <p>A ${p.fg.ema_period}-day exponential moving average of market sentiment. Extreme fear often presents buying opportunities, while extreme greed signals potential tops.</p>
+                                </div>
+
+                                <div class="indicator-item">
+                                    <h4>RSI ${p.rsi.period}-day (Weight: ${signals.rsi.weight}x)</h4>
+                                    <p>Relative Strength Index identifies overbought and oversold conditions. Extremely low RSI suggests strong buying opportunities, while very high RSI indicates potential selling zones.</p>
+                                </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="faq-section">
+                        <div class="faq-section-title">Performance vs. DCA</div>
+                        <div class="faq-section-content">
+                            <p>Starting with $1,000 invested since 2017:</p>
+
+                            <div class="comparison-card">
+                                <div class="comparison-grid">
+                                    <div class="comparison-item">
+                                        <div class="comparison-label">Pocojuan Model</div>
+                                        <div class="comparison-value">$${dca.model_final_value ? dca.model_final_value.toLocaleString() : '--'}</div>
+                                        <div style="font-size: 12px; color: #10b981; font-weight: 600; margin-top: 4px;">
+                                            +${dca.model_return ? dca.model_return.toFixed(0) : '--'}%
+                                        </div>
+                                    </div>
+
+                                    <div class="comparison-item">
+                                        <div class="comparison-label">Simple DCA</div>
+                                        <div class="comparison-value" style="color: #6b7280;">$${dca.dca_final_value ? dca.dca_final_value.toLocaleString() : '--'}</div>
+                                        <div style="font-size: 12px; color: #6b7280; font-weight: 600; margin-top: 4px;">
+                                            +${dca.dca_return ? dca.dca_return.toFixed(0) : '--'}%
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="text-align: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
+                                    <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">Outperformance</div>
+                                    <div style="font-size: 20px; font-weight: 700; color: #10b981;">
+                                        +${dca.outperformance ? dca.outperformance.toFixed(0) : '--'}%
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p style="margin-top: 16px;">The Pocojuan Model's weighted indicator system significantly outperforms a simple dollar-cost averaging strategy by timing entries and exits based on multi-factor technical analysis.</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-section">
+                        <div class="faq-section-title">Risk Disclaimer</div>
+                        <div class="faq-section-content">
+                            <p>This model is for educational and informational purposes only. Past performance does not guarantee future results. Cryptocurrency trading carries significant risk. Always conduct your own research and never invest more than you can afford to lose.</p>
                         </div>
                     </div>
                 </div>
             `;
         }
 
-        function updateLiveData(data) {
+        function updateDataPanel(data) {
             const priceElement = document.getElementById('price');
-            const newPrice = data.current_price;
+            priceElement.textContent = '$' + data.current_price.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            previousPrice = data.current_price;
 
-            const formattedPrice = '$' + newPrice.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-            priceElement.textContent = formattedPrice;
-
-            // Flash animation
-            if (previousPrice !== null && previousPrice !== newPrice) {
-                priceElement.classList.remove('flash-green', 'flash-red');
-                void priceElement.offsetWidth;
-
-                if (newPrice > previousPrice) {
-                    priceElement.classList.add('flash-green');
-                } else if (newPrice < previousPrice) {
-                    priceElement.classList.add('flash-red');
-                }
-
-                setTimeout(() => {
-                    priceElement.classList.remove('flash-green', 'flash-red');
-                }, 600);
-            }
-            previousPrice = newPrice;
-
-            // Update other data cards with actual values from API
             if (data.current_sma) {
                 document.getElementById('sma-200w').textContent = '$' + data.current_sma.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
             }
@@ -1789,54 +1934,46 @@ def index():
             const cardEl = document.getElementById('signal-card');
 
             const now = new Date();
-            const dateStr = now.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
+            const dateStr = now.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
             dateEl.textContent = dateStr;
 
-            if (data.current_overall_signal && data.signals) {
-                // Main signal display
-                textEl.textContent = data.current_overall_signal.text;
-                scoreEl.textContent = `Combined Signal: ${data.signals.combined >= 0 ? '+' : ''}${data.signals.combined}`;
-                cardEl.className = 'signal-card ' + data.signals.action_class;
-
-                // Update subsignals with proper formatting
+            if (data.signals) {
                 const s = data.signals;
+                textEl.textContent = s.action;
+                scoreEl.textContent = `Score: ${s.combined >= 0 ? '+' : ''}${s.combined}`;
+                cardEl.className = 'signal-card ' + s.action_class;
 
-                // 200W SMA Signal
-                document.getElementById('sig-200w').textContent = data.current_200w_signal.text;
-                document.getElementById('sig-200w-val').textContent = `${s['200w'].ratio} (${s['200w'].weighted >= 0 ? '+' : ''}${s['200w'].weighted})`;
+                document.getElementById('sig-200w').textContent = s['200w'].signal_text;
+                document.getElementById('sig-200w-val').textContent = `${s['200w'].weighted >= 0 ? '+' : ''}${s['200w'].weighted}`;
 
-                // 50W MA Signal
-                document.getElementById('sig-50w').textContent = data.current_50w_signal.text;
-                document.getElementById('sig-50w-val').textContent = `${s['50w'].ratio} ${s['50w'].regime} (${s['50w'].weighted >= 0 ? '+' : ''}${s['50w'].weighted})`;
+                document.getElementById('sig-50w').textContent = s['50w'].signal_text;
+                document.getElementById('sig-50w-val').textContent = `${s['50w'].weighted >= 0 ? '+' : ''}${s['50w'].weighted}`;
 
-                // F&G Signal
-                document.getElementById('sig-fg').textContent = data.current_fg_signal.text;
-                document.getElementById('sig-fg-val').textContent = `${s.fg.value} (${s.fg.weighted >= 0 ? '+' : ''}${s.fg.weighted})`;
+                document.getElementById('sig-fg').textContent = s.fg.signal_text;
+                document.getElementById('sig-fg-val').textContent = `${s.fg.weighted >= 0 ? '+' : ''}${s.fg.weighted}`;
 
-                // RSI Signal
-                document.getElementById('sig-rsi').textContent = data.current_rsi_signal.text;
-                document.getElementById('sig-rsi-val').textContent = `${s.rsi.value} (${s.rsi.weighted >= 0 ? '+' : ''}${s.rsi.weighted})`;
-            } else {
-                textEl.textContent = 'HOLD';
-                scoreEl.textContent = 'Loading...';
-                cardEl.className = 'signal-card hold';
+                document.getElementById('sig-rsi').textContent = s.rsi.signal_text;
+                document.getElementById('sig-rsi-val').textContent = `${s.rsi.weighted >= 0 ? '+' : ''}${s.rsi.weighted}`;
+            }
+        }
+
+        function updatePerformanceStats(data) {
+            if (data.performance) {
+                document.getElementById('total-return').textContent = data.performance.total_return + '%';
+                document.getElementById('win-rate').textContent = data.performance.win_rate + '%';
+                document.getElementById('total-trades').textContent = data.performance.total_trades;
             }
         }
 
         loadData();
         setInterval(loadData, 300000); // Refresh every 5 minutes
+        setInterval(updateLivePrice, 2000); // Update price every 2 seconds
 
-        // Handle window resize
-        let resizeTimer;
         window.addEventListener('resize', function() {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(function() {
+            setTimeout(function() {
                 if (chartData) {
-                    if (currentChartView === 'price') {
-                        Plotly.Plots.resize('chart');
-                    } else if (currentChartView === 'signals') {
-                        Plotly.Plots.resize('signal-chart');
-                    }
+                    if (currentChartView === 'price') Plotly.Plots.resize('chart');
+                    else if (currentChartView === 'signals') Plotly.Plots.resize('historical-signals-chart');
                 }
             }, 250);
         });
@@ -1852,7 +1989,7 @@ def index():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("   Bitcoin 4-Indicator Optimized Dashboard")
+    print("   Bitcoin Pocojuan Model Dashboard")
     print("="*70)
 
     load_config()
