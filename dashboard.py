@@ -614,8 +614,7 @@ def api_data():
         sig_fg = {'value': 1, 'text': 'HOLD'}
         sig_rsi = {'value': 1, 'text': 'HOLD'}
 
-    # Calculate performance stats
-    perf_stats = calculate_performance_stats(data, CONFIG)
+    # Calculate DCA comparison
     dca_comparison = calculate_dca_comparison(data)
 
     # Prepare response
@@ -648,7 +647,6 @@ def api_data():
 
         # Config & stats
         'config': CONFIG,
-        'performance': perf_stats,
         'dca_comparison': dca_comparison
     }
 
@@ -904,8 +902,8 @@ def index():
         }
 
         .signal-card.hold {
-            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-            color: #374151;
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            color: #92400e;
         }
 
         .signal-date {
@@ -1270,23 +1268,6 @@ def index():
                 </div>
             </div>
 
-            <div>
-                <div class="section-title">Performance Stats</div>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Return</div>
-                        <div class="stat-value green" id="total-return">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Win Rate</div>
-                        <div class="stat-value" id="win-rate">--</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Trades</div>
-                        <div class="stat-value" id="total-trades">--</div>
-                    </div>
-                </div>
-            </div>
 
             <div>
                 <div class="section-title">Live Market Data</div>
@@ -1451,7 +1432,6 @@ def index():
                 chartData = data;
                 updateDataPanel(data);
                 updateSignalCard(data);
-                updatePerformanceStats(data);
 
                 if (currentChartView === 'price') renderChart(data);
                 else if (currentChartView === 'signals') renderHistoricalSignals(data);
@@ -1622,22 +1602,76 @@ def index():
 
                 const cutoffDate = getCutoffDate();
                 let filtered = data.historical_signals;
+                let filteredDaily = data.daily;
                 if (cutoffDate) {
                     filtered = data.historical_signals.filter(d => new Date(d.time) >= cutoffDate);
+                    filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
                 }
 
                 const times = filtered.map(d => d.time);
 
-                // Individual weighted signals
+                // === MAIN CHART: Price with Buy/Sell Signals ===
+                const priceTrace = {
+                    type: 'candlestick',
+                    x: filteredDaily.map(d => d.time),
+                    open: filteredDaily.map(d => d.open),
+                    high: filteredDaily.map(d => d.high),
+                    low: filteredDaily.map(d => d.low),
+                    close: filteredDaily.map(d => d.close),
+                    name: 'BTC Price',
+                    increasing: {line: {color: '#10b981', width: 1}},
+                    decreasing: {line: {color: '#ef4444', width: 1}},
+                    yaxis: 'y',
+                    xaxis: 'x',
+                    showlegend: true
+                };
+
+                // Buy signals (green triangles up)
+                const buyTrace = {
+                    type: 'scatter',
+                    mode: 'markers',
+                    x: data.buy_signals.dates,
+                    y: data.buy_signals.prices,
+                    name: 'Buy Signal',
+                    marker: {
+                        symbol: 'triangle-up',
+                        size: 12,
+                        color: '#10b981',
+                        line: {color: '#065f46', width: 1}
+                    },
+                    yaxis: 'y',
+                    xaxis: 'x',
+                    showlegend: true
+                };
+
+                // Sell signals (red triangles down)
+                const sellTrace = {
+                    type: 'scatter',
+                    mode: 'markers',
+                    x: data.sell_signals.dates,
+                    y: data.sell_signals.prices,
+                    name: 'Sell Signal',
+                    marker: {
+                        symbol: 'triangle-down',
+                        size: 12,
+                        color: '#ef4444',
+                        line: {color: '#991b1b', width: 1}
+                    },
+                    yaxis: 'y',
+                    xaxis: 'x',
+                    showlegend: true
+                };
+
+                // Individual weighted signals (STEPPED)
                 const trace200w = {
                     type: 'scatter',
                     mode: 'lines',
                     x: times,
                     y: filtered.map(d => d.weighted_200w),
                     name: '200W SMA',
-                    line: {color: '#f59e0b', width: 1.5},
-                    yaxis: 'y',
-                    xaxis: 'x'
+                    line: {color: '#f59e0b', width: 1.5, shape: 'hv'},
+                    yaxis: 'y2',
+                    xaxis: 'x2'
                 };
 
                 const trace50w = {
@@ -1646,9 +1680,9 @@ def index():
                     x: times,
                     y: filtered.map(d => d.weighted_50w),
                     name: '50W MA',
-                    line: {color: '#3b82f6', width: 1.5},
-                    yaxis: 'y',
-                    xaxis: 'x'
+                    line: {color: '#3b82f6', width: 1.5, shape: 'hv'},
+                    yaxis: 'y2',
+                    xaxis: 'x2'
                 };
 
                 const traceFG = {
@@ -1657,9 +1691,9 @@ def index():
                     x: times,
                     y: filtered.map(d => d.weighted_fg),
                     name: 'F&G',
-                    line: {color: '#8b5cf6', width: 1.5},
-                    yaxis: 'y',
-                    xaxis: 'x'
+                    line: {color: '#8b5cf6', width: 1.5, shape: 'hv'},
+                    yaxis: 'y2',
+                    xaxis: 'x2'
                 };
 
                 const traceRSI = {
@@ -1668,21 +1702,21 @@ def index():
                     x: times,
                     y: filtered.map(d => d.weighted_rsi),
                     name: 'RSI',
-                    line: {color: '#ec4899', width: 1.5},
-                    yaxis: 'y',
-                    xaxis: 'x'
+                    line: {color: '#ec4899', width: 1.5, shape: 'hv'},
+                    yaxis: 'y2',
+                    xaxis: 'x2'
                 };
 
-                // Combined signal
+                // Combined signal (STEPPED)
                 const traceCombined = {
                     type: 'scatter',
                     mode: 'lines',
                     x: times,
                     y: filtered.map(d => d.combined),
                     name: 'Combined',
-                    line: {color: '#1f2937', width: 2},
-                    yaxis: 'y2',
-                    xaxis: 'x2',
+                    line: {color: '#1f2937', width: 2, shape: 'hv'},
+                    yaxis: 'y3',
+                    xaxis: 'x3',
                     fill: 'tozeroy',
                     fillcolor: 'rgba(107,114,128,0.1)'
                 };
@@ -1695,8 +1729,8 @@ def index():
                     y: [2, 2],
                     name: 'Buy Threshold',
                     line: {color: '#10b981', width: 1.5, dash: 'dash'},
-                    yaxis: 'y2',
-                    xaxis: 'x2',
+                    yaxis: 'y3',
+                    xaxis: 'x3',
                     showlegend: false
                 };
 
@@ -1707,24 +1741,43 @@ def index():
                     y: [-2, -2],
                     name: 'Sell Threshold',
                     line: {color: '#ef4444', width: 1.5, dash: 'dash'},
-                    yaxis: 'y2',
-                    xaxis: 'x2',
-                    showlegend: false
-                };
-
-                // Market regime
-                const regimeColors = filtered.map(d => d.regime === 'BULL' ? 1 : -1);
-                const traceRegime = {
-                    type: 'bar',
-                    x: times,
-                    y: regimeColors.map(() => 1),
-                    name: 'Regime',
-                    marker: {
-                        color: regimeColors.map(r => r === 1 ? '#10b981' : '#ef4444')
-                    },
                     yaxis: 'y3',
                     xaxis: 'x3',
                     showlegend: false
+                };
+
+                // Market regime with clearer visualization
+                const regimeColors = filtered.map(d => d.regime === 'BULL' ? 1 : -1);
+                const traceRegime = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: times,
+                    y: regimeColors,
+                    name: 'Market Regime',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(16,185,129,0.2)',
+                    line: {color: 'rgba(16,185,129,0)', width: 0, shape: 'hv'},
+                    yaxis: 'y4',
+                    xaxis: 'x4',
+                    showlegend: false,
+                    hovertemplate: '%{text}<extra></extra>',
+                    text: regimeColors.map(r => r === 1 ? 'BULL MARKET' : 'BEAR MARKET')
+                };
+
+                // Add bear market overlay
+                const traceRegimeBear = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: times,
+                    y: regimeColors.map(r => r === -1 ? -1 : null),
+                    name: 'Bear Market',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(239,68,68,0.2)',
+                    line: {color: 'rgba(239,68,68,0)', width: 0, shape: 'hv'},
+                    yaxis: 'y4',
+                    xaxis: 'x4',
+                    showlegend: false,
+                    hoverinfo: 'skip'
                 };
 
                 const layout = {
@@ -1742,6 +1795,7 @@ def index():
                     hovermode: 'x unified',
                     dragmode: false,
 
+                    // Price chart (top, largest)
                     xaxis: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1750,12 +1804,14 @@ def index():
                         fixedrange: true
                     },
                     yaxis: {
-                        title: {text: 'Weighted Signals', font: {size: 11, color: '#6b7280'}},
+                        title: {text: 'BTC Price (USD)', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
                         domain: [0.7, 1],
-                        fixedrange: true
+                        fixedrange: true,
+                        type: 'log'
                     },
 
+                    // Weighted signals chart
                     xaxis2: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1764,12 +1820,13 @@ def index():
                         fixedrange: true
                     },
                     yaxis2: {
-                        title: {text: 'Combined Signal', font: {size: 11, color: '#6b7280'}},
+                        title: {text: 'Weighted Signals', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.35, 0.65],
+                        domain: [0.48, 0.65],
                         fixedrange: true
                     },
 
+                    // Combined signal chart
                     xaxis3: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1778,17 +1835,37 @@ def index():
                         fixedrange: true
                     },
                     yaxis3: {
-                        title: {text: 'Regime', font: {size: 11, color: '#6b7280'}},
+                        title: {text: 'Combined Signal', font: {size: 11, color: '#6b7280'}},
+                        gridcolor: '#e5e7eb',
+                        domain: [0.24, 0.43],
+                        fixedrange: true
+                    },
+
+                    // Regime chart (bottom)
+                    xaxis4: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y4',
+                        fixedrange: true
+                    },
+                    yaxis4: {
+                        title: {text: 'Market Regime', font: {size: 11, color: '#6b7280'}},
                         gridcolor: 'transparent',
-                        domain: [0, 0.3],
+                        domain: [0, 0.19],
                         fixedrange: true,
-                        showticklabels: false
+                        tickmode: 'array',
+                        tickvals: [-1, 1],
+                        ticktext: ['🔴 BEAR', '🟢 BULL'],
+                        zeroline: true,
+                        zerolinecolor: '#d1d5db',
+                        zerolinewidth: 2
                     },
 
                     margin: {l: 60, r: 40, t: 60, b: 60}
                 };
 
-                const traces = [trace200w, trace50w, traceFG, traceRSI, traceCombined, buyThreshold, sellThreshold, traceRegime];
+                const traces = [priceTrace, buyTrace, sellTrace, trace200w, trace50w, traceFG, traceRSI, traceCombined, buyThreshold, sellThreshold, traceRegime, traceRegimeBear];
                 Plotly.newPlot('historical-signals-chart', traces, layout, {responsive: true, displayModeBar: false, staticPlot: true});
             } catch (err) {
                 console.error('Error rendering historical signals:', err);
@@ -1954,14 +2031,6 @@ def index():
 
                 document.getElementById('sig-rsi').textContent = s.rsi.signal_text;
                 document.getElementById('sig-rsi-val').textContent = `${s.rsi.weighted >= 0 ? '+' : ''}${s.rsi.weighted}`;
-            }
-        }
-
-        function updatePerformanceStats(data) {
-            if (data.performance) {
-                document.getElementById('total-return').textContent = data.performance.total_return + '%';
-                document.getElementById('win-rate').textContent = data.performance.win_rate + '%';
-                document.getElementById('total-trades').textContent = data.performance.total_trades;
             }
         }
 
