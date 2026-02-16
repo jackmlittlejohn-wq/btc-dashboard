@@ -1651,7 +1651,7 @@ def index():
                     showlegend: true
                 };
 
-                // Buy signals (green triangles up) - SMALLER
+                // Buy signals (green triangles up) - SEMI-TRANSPARENT
                 const buyTrace = {
                     type: 'scatter',
                     mode: 'markers',
@@ -1661,15 +1661,15 @@ def index():
                     marker: {
                         symbol: 'triangle-up',
                         size: 8,
-                        color: '#10b981',
-                        line: {color: '#065f46', width: 1}
+                        color: 'rgba(16,185,129,0.6)',
+                        line: {color: 'rgba(6,95,70,0.8)', width: 1}
                     },
                     yaxis: 'y',
                     xaxis: 'x',
                     showlegend: true
                 };
 
-                // Sell signals (red triangles down) - SMALLER
+                // Sell signals (red triangles down) - SEMI-TRANSPARENT
                 const sellTrace = {
                     type: 'scatter',
                     mode: 'markers',
@@ -1679,8 +1679,8 @@ def index():
                     marker: {
                         symbol: 'triangle-down',
                         size: 8,
-                        color: '#ef4444',
-                        line: {color: '#991b1b', width: 1}
+                        color: 'rgba(239,68,68,0.6)',
+                        line: {color: 'rgba(153,27,27,0.8)', width: 1}
                     },
                     yaxis: 'y',
                     xaxis: 'x',
@@ -1771,38 +1771,20 @@ def index():
                     showlegend: false
                 };
 
-                // Market regime with clearer visualization
-                const regimeColors = filtered.map(d => d.regime === 'BULL' ? 1 : -1);
-                const traceRegime = {
-                    type: 'scatter',
-                    mode: 'lines',
+                // Market regime - single bar that changes color
+                const regimeTrace = {
+                    type: 'bar',
                     x: times,
-                    y: regimeColors,
+                    y: Array(times.length).fill(1),  // Fill entire height
                     name: 'Market Regime',
-                    fill: 'tozeroy',
-                    fillcolor: 'rgba(16,185,129,0.2)',
-                    line: {color: 'rgba(16,185,129,0)', width: 0, shape: 'hv'},
+                    marker: {
+                        color: filtered.map(d => d.regime === 'BULL' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)')
+                    },
                     yaxis: 'y4',
                     xaxis: 'x4',
                     showlegend: false,
                     hovertemplate: '%{text}<extra></extra>',
-                    text: regimeColors.map(r => r === 1 ? 'BULL MARKET' : 'BEAR MARKET')
-                };
-
-                // Add bear market overlay
-                const traceRegimeBear = {
-                    type: 'scatter',
-                    mode: 'lines',
-                    x: times,
-                    y: regimeColors.map(r => r === -1 ? -1 : null),
-                    name: 'Bear Market',
-                    fill: 'tozeroy',
-                    fillcolor: 'rgba(239,68,68,0.2)',
-                    line: {color: 'rgba(239,68,68,0)', width: 0, shape: 'hv'},
-                    yaxis: 'y4',
-                    xaxis: 'x4',
-                    showlegend: false,
-                    hoverinfo: 'skip'
+                    text: filtered.map(d => d.regime === 'BULL' ? 'BULL MARKET' : 'BEAR MARKET')
                 };
 
                 const layout = {
@@ -1831,7 +1813,7 @@ def index():
                     yaxis: {
                         title: {text: 'BTC Price (USD)', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.7, 1],
+                        domain: [0.5, 1],
                         fixedrange: true,
                         type: 'log'
                     },
@@ -1847,7 +1829,7 @@ def index():
                     yaxis2: {
                         title: {text: 'Weighted Signals', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.48, 0.65],
+                        domain: [0.32, 0.46],
                         fixedrange: true
                     },
 
@@ -1862,7 +1844,7 @@ def index():
                     yaxis3: {
                         title: {text: 'Combined Signal', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.24, 0.43],
+                        domain: [0.16, 0.28],
                         fixedrange: true
                     },
 
@@ -1875,22 +1857,18 @@ def index():
                         fixedrange: true
                     },
                     yaxis4: {
-                        title: {text: 'Market Regime', font: {size: 11, color: '#6b7280'}},
+                        title: {text: 'Regime', font: {size: 11, color: '#6b7280'}},
                         gridcolor: 'transparent',
-                        domain: [0, 0.19],
+                        domain: [0, 0.12],
                         fixedrange: true,
-                        tickmode: 'array',
-                        tickvals: [-1, 1],
-                        ticktext: ['BEAR', 'BULL'],
-                        zeroline: true,
-                        zerolinecolor: '#d1d5db',
-                        zerolinewidth: 2
+                        showticklabels: false,
+                        zeroline: false
                     },
 
                     margin: {l: 60, r: 40, t: 60, b: 60}
                 };
 
-                const traces = [priceTrace, buyTrace, sellTrace, trace200w, trace50w, traceFG, traceRSI, traceCombined, buyThreshold, sellThreshold, traceRegime, traceRegimeBear];
+                const traces = [priceTrace, buyTrace, sellTrace, trace200w, trace50w, traceFG, traceRSI, traceCombined, buyThreshold, sellThreshold, regimeTrace];
                 Plotly.newPlot('historical-signals-chart', traces, layout, {responsive: true, displayModeBar: false, staticPlot: true});
             } catch (err) {
                 console.error('Error rendering historical signals:', err);
