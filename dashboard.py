@@ -468,15 +468,70 @@ def api_data():
             'rsi': float(row['rsi']) if not pd.isna(row['rsi']) else None
         })
 
-    # Prepare response
+    # Extract current values for compatibility with old frontend structure
+    current_sma = float(latest_row['sma_200w']) if not pd.isna(latest_row['sma_200w']) else 0
+    current_ma_50w = float(latest_row['ma_50w']) if not pd.isna(latest_row['ma_50w']) else 0
+    current_fg = int(latest_row['fg_index']) if not pd.isna(latest_row['fg_index']) else 0
+    current_fg_ema = float(latest_row['fg_ema']) if not pd.isna(latest_row['fg_ema']) else 0
+    current_rsi = float(latest_row['rsi']) if not pd.isna(latest_row['rsi']) else 0
+    current_ratio = float(latest_row['sma_ratio']) if not pd.isna(latest_row['sma_ratio']) else 0
+    current_ma50w_ratio = float(latest_row['ma50w_ratio']) if not pd.isna(latest_row['ma50w_ratio']) else 0
+    current_regime = latest_row['regime'] if 'regime' in latest_row else 'bull'
+
+    # Create signal objects in the old format
+    if signals:
+        overall_signal = {
+            'value': 2 if signals['action_class'] == 'buy' else (0 if signals['action_class'] == 'sell' else 1),
+            'text': signals['action']
+        }
+        sig_200w = {
+            'value': signals['200w']['signal'] + 2,  # Convert -1,0,1 to 1,2,3
+            'text': signals['200w']['signal_text']
+        }
+        sig_50w = {
+            'value': signals['50w']['signal'] + 2,
+            'text': signals['50w']['signal_text']
+        }
+        sig_fg = {
+            'value': signals['fg']['signal'] + 2,
+            'text': signals['fg']['signal_text']
+        }
+        sig_rsi = {
+            'value': signals['rsi']['signal'] + 2,
+            'text': signals['rsi']['signal_text']
+        }
+    else:
+        overall_signal = {'value': 1, 'text': 'HOLD'}
+        sig_200w = {'value': 1, 'text': 'NEUTRAL'}
+        sig_50w = {'value': 1, 'text': 'NEUTRAL'}
+        sig_fg = {'value': 1, 'text': 'NEUTRAL'}
+        sig_rsi = {'value': 1, 'text': 'NEUTRAL'}
+
+    # Prepare response with both old and new formats
     response = {
+        # Old format fields for compatibility
         'current_price': float(data['current_price']) if data['current_price'] else 0,
+        'current_sma': current_sma,
+        'current_ma_50w': current_ma_50w,
+        'current_fg': current_fg,
+        'current_fg_ema': current_fg_ema,
+        'current_rsi': current_rsi,
+        'current_ratio': current_ratio,
+        'current_ma50w_ratio': current_ma50w_ratio,
+        'current_regime': current_regime,
         'timestamp': latest_row['time'].strftime('%Y-%m-%d %H:%M UTC'),
-        'signals': signals,
-        'config': CONFIG,
+        'current_overall_signal': overall_signal,
+        'current_200w_signal': sig_200w,
+        'current_50w_signal': sig_50w,
+        'current_fg_signal': sig_fg,
+        'current_rsi_signal': sig_rsi,
         'daily': daily_data,
         'buy_signals': buy_signals,
-        'sell_signals': sell_signals
+        'sell_signals': sell_signals,
+        'fgsma_params': CONFIG,  # Keep name for compatibility
+
+        # New format for detailed signal info
+        'signals': signals
     }
 
     DATA_CACHE['chart_data'] = response
@@ -1606,8 +1661,14 @@ def index():
 
         function renderFAQ(data) {
             const faqDiv = document.getElementById('faq-content');
+
+            if (!data.signals || !data.fgsma_params) {
+                faqDiv.innerHTML = '<div class="faq-content"><p>Loading...</p></div>';
+                return;
+            }
+
             const signals = data.signals;
-            const config = data.config;
+            const config = data.fgsma_params;
             const p = config.parameters;
 
             faqDiv.innerHTML = `
@@ -1703,25 +1764,21 @@ def index():
             }
             previousPrice = newPrice;
 
-            // Update other data cards with actual values
-            if (data.daily && data.daily.length > 0) {
-                const latest = data.daily[data.daily.length - 1];
+            // Update other data cards with actual values from API
+            if (data.current_sma) {
+                document.getElementById('sma-200w').textContent = '$' + data.current_sma.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            }
 
-                if (latest.sma_200w) {
-                    document.getElementById('sma-200w').textContent = '$' + latest.sma_200w.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-                }
+            if (data.current_ma_50w) {
+                document.getElementById('ma-50w').textContent = '$' + data.current_ma_50w.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            }
 
-                if (latest.ma_50w) {
-                    document.getElementById('ma-50w').textContent = '$' + latest.ma_50w.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-                }
+            if (data.current_fg_ema) {
+                document.getElementById('fg').textContent = Math.round(data.current_fg_ema);
+            }
 
-                if (latest.fg_ema) {
-                    document.getElementById('fg').textContent = Math.round(latest.fg_ema);
-                }
-
-                if (latest.rsi) {
-                    document.getElementById('rsi').textContent = Math.round(latest.rsi);
-                }
+            if (data.current_rsi) {
+                document.getElementById('rsi').textContent = Math.round(data.current_rsi);
             }
         }
 
@@ -1735,24 +1792,34 @@ def index():
             const dateStr = now.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
             dateEl.textContent = dateStr;
 
-            if (data.signals) {
-                const s = data.signals;
-                textEl.textContent = s.action;
-                scoreEl.textContent = `Combined Signal: ${s.combined >= 0 ? '+' : ''}${s.combined}`;
-                cardEl.className = 'signal-card ' + s.action_class;
+            if (data.current_overall_signal && data.signals) {
+                // Main signal display
+                textEl.textContent = data.current_overall_signal.text;
+                scoreEl.textContent = `Combined Signal: ${data.signals.combined >= 0 ? '+' : ''}${data.signals.combined}`;
+                cardEl.className = 'signal-card ' + data.signals.action_class;
 
-                // Update subsignals
-                document.getElementById('sig-200w').textContent = s['200w'].signal_text;
+                // Update subsignals with proper formatting
+                const s = data.signals;
+
+                // 200W SMA Signal
+                document.getElementById('sig-200w').textContent = data.current_200w_signal.text;
                 document.getElementById('sig-200w-val').textContent = `${s['200w'].ratio} (${s['200w'].weighted >= 0 ? '+' : ''}${s['200w'].weighted})`;
 
-                document.getElementById('sig-50w').textContent = s['50w'].signal_text;
+                // 50W MA Signal
+                document.getElementById('sig-50w').textContent = data.current_50w_signal.text;
                 document.getElementById('sig-50w-val').textContent = `${s['50w'].ratio} ${s['50w'].regime} (${s['50w'].weighted >= 0 ? '+' : ''}${s['50w'].weighted})`;
 
-                document.getElementById('sig-fg').textContent = s.fg.signal_text;
+                // F&G Signal
+                document.getElementById('sig-fg').textContent = data.current_fg_signal.text;
                 document.getElementById('sig-fg-val').textContent = `${s.fg.value} (${s.fg.weighted >= 0 ? '+' : ''}${s.fg.weighted})`;
 
-                document.getElementById('sig-rsi').textContent = s.rsi.signal_text;
+                // RSI Signal
+                document.getElementById('sig-rsi').textContent = data.current_rsi_signal.text;
                 document.getElementById('sig-rsi-val').textContent = `${s.rsi.value} (${s.rsi.weighted >= 0 ? '+' : ''}${s.rsi.weighted})`;
+            } else {
+                textEl.textContent = 'HOLD';
+                scoreEl.textContent = 'Loading...';
+                cardEl.className = 'signal-card hold';
             }
         }
 
