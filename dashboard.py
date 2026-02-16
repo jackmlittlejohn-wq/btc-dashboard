@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Bitcoin FGSMA Model Dashboard
-5-level threshold system with buy/sell signal visualization
+Bitcoin 4-Indicator Optimized Dashboard
+Uses 200W SMA, 50W MA (regime-based), F&G, and RSI
 """
 
 import sys
@@ -28,156 +28,64 @@ app = Flask(__name__, static_folder='static', static_url_path='/static')
 Compress(app)  # Enable gzip compression
 
 DATA_CACHE = {'chart_data': None, 'last_update': None, 'cache_duration': 300}  # 5 minutes
-SIGNALS_CACHE = {'buy_dates': None, 'buy_prices': None, 'sell_dates': None, 'sell_prices': None, 'last_update': None}
-FGSMA_PARAMS = None
+CONFIG = None
+START_YEAR = 2017  # Reference year for decay calculation
 
 # ============================================================================
-# LOAD FGSMA PARAMETERS
+# LOAD CONFIGURATION
 # ============================================================================
 
-def load_fgsma_parameters():
-    """Load FGSMA optimized parameters from JSON file"""
-    global FGSMA_PARAMS
+def load_config():
+    """Load optimized parameters from JSON file"""
+    global CONFIG
     try:
-        # Use script directory as base path for better Railway compatibility
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(script_dir, 'fgsma_optimized.json')
+        json_path = os.path.join(script_dir, 'final_5stage_config.json')
 
         print(f"[INFO] Looking for config at: {json_path}")
-        print(f"[INFO] Current working directory: {os.getcwd()}")
-        print(f"[INFO] Script directory: {script_dir}")
 
         if os.path.exists(json_path):
             with open(json_path, 'r') as f:
-                data = json.load(f)
-                FGSMA_PARAMS = data['optimal_parameters']
-            print("[INFO] ✓ Loaded FGSMA optimized parameters")
-            print(f"[INFO] EMA Period: {FGSMA_PARAMS['ema_period']} days")
+                CONFIG = json.load(f)
+            print("[INFO] ✓ Loaded optimized 4-indicator configuration")
+            print(f"[INFO] Total Return: {CONFIG.get('total_return', 0):.2f}%")
         else:
-            print(f"[ERROR] fgsma_optimized.json not found at {json_path}")
-            print(f"[ERROR] Files in directory: {os.listdir(script_dir)[:20]}")
-            FGSMA_PARAMS = None
+            print(f"[ERROR] final_5stage_config.json not found at {json_path}")
+            CONFIG = None
     except Exception as e:
-        print(f"[ERROR] Loading FGSMA parameters: {e}")
+        print(f"[ERROR] Loading configuration: {e}")
         import traceback
         traceback.print_exc()
-        FGSMA_PARAMS = None
-
-# ============================================================================
-# SIGNAL CALCULATION
-# ============================================================================
-
-def calculate_ema(series, period):
-    """Calculate exponential moving average"""
-    return series.ewm(span=period, adjust=False).mean()
-
-def get_fg_signal(fg_ema, t1, t2, t3, t4):
-    """Get F&G EMA signal based on thresholds (CORRECTED: fear = buy, greed = sell)"""
-    if fg_ema <= t1:
-        return 4, "Strong Buy"  # Extreme fear
-    elif fg_ema <= t2:
-        return 3, "Buy"  # Moderate fear
-    elif fg_ema <= t3:
-        return 2, "Hold"  # Neutral
-    elif fg_ema <= t4:
-        return 1, "Sell"  # Moderate greed
-    else:
-        return 0, "Strong Sell"  # Extreme greed
-
-def get_sma_signal(price_to_sma, r1, r2, r3, r4):
-    """Get SMA Ratio signal based on thresholds (0-4)"""
-    if price_to_sma <= r1:
-        return 4, "Strong Buy"
-    elif price_to_sma <= r2:
-        return 3, "Buy"
-    elif price_to_sma <= r3:
-        return 2, "Hold"
-    elif price_to_sma <= r4:
-        return 1, "Sell"
-    else:
-        return 0, "Strong Sell"
-
-def apply_time_adjustment(r1, r2, r3, r4, days_since_start, decay_rate):
-    """Apply time adjustment to SMA ratio thresholds with EXPONENTIAL DECAY"""
-    years_elapsed = days_since_start / 365.25
-    decay_factor = (1.0 - decay_rate) ** years_elapsed
-    return r1 * decay_factor, r2 * decay_factor, r3 * decay_factor, r4 * decay_factor
-
-def combine_signals(fg_signal, sma_signal):
-    """Combine F&G and SMA signals using boolean logic (returns 0-4)"""
-    # Both agree on extreme
-    if fg_signal == 4 and sma_signal == 4:
-        return 4, "Strong Buy"
-    if fg_signal == 0 and sma_signal == 0:
-        return 0, "Strong Sell"
-
-    # One strong buy, other buy or hold
-    if (fg_signal == 4 and sma_signal >= 2) or (sma_signal == 4 and fg_signal >= 2):
-        return 3, "Buy"
-
-    # One strong sell, other sell or hold
-    if (fg_signal == 0 and sma_signal <= 2) or (sma_signal == 0 and fg_signal <= 2):
-        return 1, "Sell"
-
-    # Both say hold
-    if fg_signal == 2 and sma_signal == 2:
-        return 2, "Hold"
-
-    # Direct conflict
-    if (fg_signal >= 3 and sma_signal <= 1) or (sma_signal >= 3 and fg_signal <= 1):
-        return 2, "Hold"
-
-    # Both say buy
-    if fg_signal == 3 and sma_signal == 3:
-        return 3, "Buy"
-
-    # Both say sell
-    if fg_signal == 1 and sma_signal == 1:
-        return 1, "Sell"
-
-    # Mixed signals lean toward more conservative
-    if fg_signal >= 3 or sma_signal >= 3:
-        return 3, "Buy"
-    if fg_signal <= 1 or sma_signal <= 1:
-        return 1, "Sell"
-
-    return 2, "Hold"
+        CONFIG = None
 
 # ============================================================================
 # DATA FETCHING
 # ============================================================================
 
 def fetch_daily_btc_data():
-    """Fetch daily BTC/USD price data using ccxt - tries multiple exchanges"""
+    """Fetch daily BTC/USD price data using ccxt"""
     import ccxt
 
-    # Use Bitstamp only - it works reliably
-    exchanges_to_try = [
-        ('bitstamp', 'BTC/USD', 'Bitstamp')
-    ]
+    exchanges_to_try = [('bitstamp', 'BTC/USD', 'Bitstamp')]
 
     for exchange_id, symbol, exchange_name in exchanges_to_try:
         try:
-            print(f"[INFO] Attempting to fetch Bitcoin data from {exchange_name}...")
+            print(f"[INFO] Fetching Bitcoin data from {exchange_name}...")
 
-            # Initialize exchange
             exchange_class = getattr(ccxt, exchange_id)
             exchange = exchange_class({
                 'enableRateLimit': True,
                 'timeout': 30000
             })
 
-            # Fetch historical daily OHLCV data in batches
             timeframe = '1d'
             limit = 500
-
             all_candles = []
-            # Start from 2016 for more signals (compromise between memory and data)
             since = exchange.parse8601('2016-01-01T00:00:00Z')
 
             print(f"[INFO] Fetching historical data from {exchange_name}...")
             batch_count = 0
-            max_batches = 10  # Enough for 2016 to 2026 (10 years = ~3650 days, need 8 batches)
+            max_batches = 10
 
             while batch_count < max_batches:
                 batch_count += 1
@@ -192,14 +100,12 @@ def fetch_daily_btc_data():
 
                     all_candles.extend(candles)
 
-                    # Check if we got all available data (less than requested)
                     if len(candles) < limit:
                         print(f"[INFO] Got final batch with {len(candles)} candles")
                         break
 
-                    # Move to next batch
-                    since = candles[-1][0] + 86400000  # Add 1 day in ms
-                    time.sleep(0.5)  # Rate limiting
+                    since = candles[-1][0] + 86400000
+                    time.sleep(0.5)
 
                 except Exception as e:
                     print(f"[WARNING] Batch {batch_count} from {exchange_name} failed: {e}")
@@ -207,19 +113,17 @@ def fetch_daily_btc_data():
 
             print(f"[INFO] Total candles fetched: {len(all_candles)}")
 
-            if len(all_candles) > 1400:  # Need at least 1400 days for 200W SMA
-                # Convert to DataFrame
+            if len(all_candles) > 1400:
                 df = pd.DataFrame(all_candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 df['time'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize(None)
                 df = df[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
 
-                # Remove duplicates and sort
                 df = df.drop_duplicates(subset=['time'], keep='last')
                 df = df.sort_values('time').reset_index(drop=True)
 
                 print(f"[OK] ✓ Fetched {len(df)} days from {exchange_name}")
                 print(f"[OK] Date range: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
-                gc.collect()  # Free memory
+                gc.collect()
                 return df
             else:
                 print(f"[WARNING] {exchange_name} returned insufficient data ({len(all_candles)} days)")
@@ -228,26 +132,8 @@ def fetch_daily_btc_data():
             print(f"[WARNING] {exchange_name} failed: {str(e)[:200]}")
             continue
 
-    # All exchanges failed
     print("[ERROR] All exchange attempts failed")
     return None
-
-def calculate_200w_sma_from_daily(daily_df):
-    """Calculate 200-week SMA from daily data (1400 day rolling average)"""
-    try:
-        if daily_df is None or len(daily_df) < 1400:
-            print(f"[WARNING] Not enough data for 200W SMA")
-            return None
-
-        df = daily_df.copy()
-        df['sma_200w'] = df['close'].rolling(window=1400, min_periods=1400).mean()
-        sma_df = df[['time', 'sma_200w']].copy()
-        sma_df = sma_df.rename(columns={'sma_200w': 'value'})
-        sma_df = sma_df.dropna()
-        return sma_df
-    except Exception as e:
-        print(f"[ERROR] SMA calculation: {e}")
-        return None
 
 def fetch_fear_greed():
     """Fetch daily Fear & Greed index data"""
@@ -271,6 +157,7 @@ def fetch_fear_greed():
         return None
 
 def fetch_current_price():
+    """Get current BTC price"""
     try:
         response = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', timeout=5)
         response.raise_for_status()
@@ -278,138 +165,239 @@ def fetch_current_price():
     except:
         return None
 
+# ============================================================================
+# INDICATOR CALCULATIONS
+# ============================================================================
+
+def calculate_200w_sma(df):
+    """Calculate 200-week SMA from daily data"""
+    try:
+        if len(df) < 1400:
+            return None
+
+        df_copy = df.copy()
+        df_copy['sma_200w'] = df_copy['close'].rolling(window=1400, min_periods=1400).mean()
+        df_copy['sma_ratio'] = df_copy['close'] / df_copy['sma_200w']
+        return df_copy
+    except Exception as e:
+        print(f"[ERROR] 200W SMA calculation: {e}")
+        return None
+
+def calculate_50w_ma_with_regime(df):
+    """Calculate 50-week MA with regime detection"""
+    try:
+        # Resample to weekly data
+        df_weekly = df.set_index('time').resample('W-SUN')['close'].last().dropna()
+        ma_50w = df_weekly.rolling(window=50, min_periods=1).mean()
+
+        ma_df = pd.DataFrame({
+            'weekly_close': df_weekly,
+            'ma_50w': ma_50w
+        })
+
+        # Detect regime
+        regimes = []
+        for i in range(len(ma_df)):
+            if i < 2:
+                regimes.append('bull')
+                continue
+
+            last_3 = ma_df.iloc[max(0, i-2):i+1]
+            above_count = (last_3['weekly_close'] > last_3['ma_50w']).sum()
+
+            if above_count == 3:
+                regimes.append('bull')
+            elif above_count == 0:
+                regimes.append('bear')
+            else:
+                regimes.append(regimes[-1] if regimes else 'bull')
+
+        ma_df['regime'] = regimes
+        ma_df['ma50w_ratio'] = ma_df['weekly_close'] / ma_df['ma_50w']
+
+        return ma_df
+    except Exception as e:
+        print(f"[ERROR] 50W MA calculation: {e}")
+        return None
+
+def calculate_rsi(series, period):
+    """Calculate RSI indicator"""
+    try:
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    except Exception as e:
+        print(f"[ERROR] RSI calculation: {e}")
+        return None
+
+# ============================================================================
+# SIGNAL GENERATION
+# ============================================================================
+
+def get_signals(latest_row, config):
+    """Calculate signals for all 4 indicators"""
+    if config is None:
+        return None
+
+    try:
+        p = config['parameters']
+        w = config['weights']
+
+        years = latest_row['time'].year - START_YEAR
+
+        # 1. 200W SMA Signal
+        decay = p['sma_200w']['decay'] ** years
+        adj_buy = p['sma_200w']['buy'] * decay
+        adj_sell = p['sma_200w']['sell'] * decay
+        sig_200w = 1 if latest_row['sma_ratio'] < adj_buy else (-1 if latest_row['sma_ratio'] > adj_sell else 0)
+
+        # 2. 50W MA Signal (regime-dependent)
+        if latest_row['regime'] == 'bull':
+            sig_50w = -1 if latest_row['ma50w_ratio'] > p['ma_50w']['bull_ext'] else (
+                1 if latest_row['ma50w_ratio'] < p['ma_50w']['bull_supp'] else 0
+            )
+        else:
+            sig_50w = -1 if latest_row['ma50w_ratio'] > p['ma_50w']['bear_res'] else (
+                1 if latest_row['ma50w_ratio'] < p['ma_50w']['bear_deep'] else 0
+            )
+
+        # 3. F&G Signal
+        sig_fg = 1 if latest_row['fg_ema'] < p['fg']['buy'] else (
+            -1 if latest_row['fg_ema'] > p['fg']['sell'] else 0
+        )
+
+        # 4. RSI Signal
+        sig_rsi = 1 if latest_row['rsi'] < p['rsi']['buy'] else (
+            -1 if latest_row['rsi'] > p['rsi']['sell'] else 0
+        )
+
+        # Weighted combined signal
+        combined = (sig_200w * w['w_200w']) + (sig_50w * w['w_50w']) + (sig_fg * w['w_fg']) + (sig_rsi * w['w_rsi'])
+
+        # Determine action
+        if combined >= 2:
+            action = 'STRONG BUY'
+            action_class = 'buy'
+        elif combined <= -2:
+            action = 'STRONG SELL'
+            action_class = 'sell'
+        else:
+            action = 'HOLD'
+            action_class = 'hold'
+
+        return {
+            '200w': {
+                'signal': sig_200w,
+                'signal_text': 'BUY' if sig_200w == 1 else ('SELL' if sig_200w == -1 else 'NEUTRAL'),
+                'weighted': round(sig_200w * w['w_200w'], 2),
+                'weight': round(w['w_200w'], 2),
+                'ratio': round(latest_row['sma_ratio'], 3),
+                'buy_threshold': round(adj_buy, 2),
+                'sell_threshold': round(adj_sell, 2)
+            },
+            '50w': {
+                'signal': sig_50w,
+                'signal_text': 'BUY' if sig_50w == 1 else ('SELL' if sig_50w == -1 else 'NEUTRAL'),
+                'weighted': round(sig_50w * w['w_50w'], 2),
+                'weight': round(w['w_50w'], 2),
+                'ratio': round(latest_row['ma50w_ratio'], 3),
+                'regime': latest_row['regime'].upper()
+            },
+            'fg': {
+                'signal': sig_fg,
+                'signal_text': 'BUY' if sig_fg == 1 else ('SELL' if sig_fg == -1 else 'NEUTRAL'),
+                'weighted': round(sig_fg * w['w_fg'], 2),
+                'weight': round(w['w_fg'], 2),
+                'value': round(latest_row['fg_ema'], 1),
+                'buy_threshold': round(p['fg']['buy'], 1),
+                'sell_threshold': round(p['fg']['sell'], 1)
+            },
+            'rsi': {
+                'signal': sig_rsi,
+                'signal_text': 'BUY' if sig_rsi == 1 else ('SELL' if sig_rsi == -1 else 'NEUTRAL'),
+                'weighted': round(sig_rsi * w['w_rsi'], 2),
+                'weight': round(w['w_rsi'], 2),
+                'value': round(latest_row['rsi'], 1),
+                'buy_threshold': round(p['rsi']['buy'], 1),
+                'sell_threshold': round(p['rsi']['sell'], 1)
+            },
+            'combined': round(combined, 2),
+            'action': action,
+            'action_class': action_class
+        }
+    except Exception as e:
+        print(f"[ERROR] Signal calculation: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# ============================================================================
+# DATA PREPARATION
+# ============================================================================
+
 def prepare_all_data():
-    print("\n[INFO] Fetching daily data...")
+    """Fetch and prepare all indicator data"""
+    print("\n[INFO] Fetching data...")
     start_time = time.time()
 
+    # Fetch raw data
     daily_df = fetch_daily_btc_data()
     if daily_df is None:
         return None
 
-    sma_df = calculate_200w_sma_from_daily(daily_df)
     fg_df = fetch_fear_greed()
+    if fg_df is None:
+        print("[WARNING] No F&G data available")
+        return None
 
-    # Merge datasets
-    if sma_df is not None:
-        daily_df = daily_df.merge(sma_df, on='time', how='left')
-    else:
-        daily_df['value'] = None
+    # Calculate 200W SMA
+    daily_df = calculate_200w_sma(daily_df)
+    if daily_df is None:
+        return None
 
-    if fg_df is not None:
-        daily_df = daily_df.merge(fg_df, on='time', how='left')
-        daily_df['fg_index'] = daily_df['value_y'].ffill()
-        daily_df = daily_df.drop(columns=['value_y'])
-        daily_df = daily_df.rename(columns={'value_x': 'sma_200w'})
-    else:
-        daily_df['fg_index'] = 50
-        daily_df = daily_df.rename(columns={'value': 'sma_200w'})
+    # Calculate F&G EMA
+    if CONFIG is not None:
+        fg_period = CONFIG['parameters']['fg']['ema_period']
+        fg_df = fg_df.sort_values('time').copy()
+        fg_df['fg_ema'] = fg_df['value'].ewm(span=fg_period, adjust=False).mean()
 
-    daily_df['price_to_sma'] = daily_df['close'] / daily_df['sma_200w']
+    # Calculate RSI
+    if CONFIG is not None:
+        rsi_period = CONFIG['parameters']['rsi']['period']
+        daily_df['rsi'] = calculate_rsi(daily_df['close'], rsi_period)
 
-    # Calculate days since start for time adjustment
-    daily_df = daily_df.sort_values('time').reset_index(drop=True)
-    first_valid_idx = daily_df[daily_df['sma_200w'].notna() & daily_df['fg_index'].notna()].index.min()
-    if pd.notna(first_valid_idx):
-        start_date = daily_df.loc[first_valid_idx, 'time']
-        daily_df['days_since_start'] = (daily_df['time'] - start_date).dt.days
-    else:
-        daily_df['days_since_start'] = 0
+    # Calculate 50W MA with regime
+    ma_df = calculate_50w_ma_with_regime(daily_df)
+    if ma_df is None:
+        return None
 
-    # Calculate F&G EMA if parameters are loaded
-    if FGSMA_PARAMS is not None:
-        ema_period = FGSMA_PARAMS['ema_period']
-        daily_df['fg_ema'] = calculate_ema(daily_df['fg_index'], ema_period)
+    # Merge all data
+    daily_df = daily_df.set_index('time')
+    daily_df = daily_df.merge(ma_df[['ma_50w', 'regime', 'ma50w_ratio']], left_index=True, right_index=True, how='left')
+    daily_df = daily_df.merge(fg_df[['time', 'value', 'fg_ema']].set_index('time'), left_index=True, right_index=True, how='left')
+    daily_df = daily_df.rename(columns={'value': 'fg_index'})
+
+    # Forward fill missing values
+    for col in ['sma_200w', 'sma_ratio', 'ma_50w', 'regime', 'ma50w_ratio', 'fg_index', 'fg_ema', 'rsi']:
+        if col in daily_df.columns:
+            daily_df[col] = daily_df[col].ffill()
+
+    daily_df = daily_df.reset_index()
 
     # Get current values
     current_price = fetch_current_price()
-
     if current_price is None and len(daily_df) > 0:
         current_price = float(daily_df['close'].iloc[-1])
 
-    current_fg = None
-    if fg_df is not None and len(fg_df) > 0:
-        try:
-            url = 'https://api.alternative.me/fng/?limit=1'
-            response = requests.get(url, timeout=5)
-            response.raise_for_status()
-            current_fg = int(response.json()['data'][0]['value'])
-        except:
-            current_fg = int(daily_df['fg_index'].iloc[-1]) if len(daily_df) > 0 else 50
-
-    current_sma = float(daily_df['sma_200w'].iloc[-1]) if len(daily_df) > 0 and pd.notna(daily_df['sma_200w'].iloc[-1]) else None
-    current_ratio = float(daily_df['price_to_sma'].iloc[-1]) if len(daily_df) > 0 and pd.notna(daily_df['price_to_sma'].iloc[-1]) else None
-    current_fg_ema = float(daily_df['fg_ema'].iloc[-1]) if len(daily_df) > 0 and 'fg_ema' in daily_df.columns and pd.notna(daily_df['fg_ema'].iloc[-1]) else None
-    current_days_since_start = float(daily_df['days_since_start'].iloc[-1]) if len(daily_df) > 0 else 0
-
-    print(f"[OK] Data fetched in {time.time() - start_time:.2f}s")
+    print(f"[OK] Data prepared in {time.time() - start_time:.2f}s")
 
     return {
         'daily': daily_df,
-        'current_price': current_price,
-        'current_sma': current_sma,
-        'current_fg': current_fg,
-        'current_ratio': current_ratio,
-        'current_fg_ema': current_fg_ema,
-        'current_days_since_start': current_days_since_start
+        'current_price': current_price
     }
-
-# ============================================================================
-# GENERATE BUY/SELL SIGNALS
-# ============================================================================
-
-def generate_signals(df, params):
-    """Generate buy/sell signals for entire dataset"""
-    if params is None:
-        return [], [], [], []
-
-    ema_period = params['ema_period']
-    t1 = params['fg_thresholds']['t1_strong_buy_to_buy']
-    t2 = params['fg_thresholds']['t2_buy_to_hold']
-    t3 = params['fg_thresholds']['t3_hold_to_sell']
-    t4 = params['fg_thresholds']['t4_sell_to_strong_sell']
-    r1 = params['sma_ratio_thresholds_base']['r1_strong_buy_to_buy']
-    r2 = params['sma_ratio_thresholds_base']['r2_buy_to_hold']
-    r3 = params['sma_ratio_thresholds_base']['r3_hold_to_sell']
-    r4 = params['sma_ratio_thresholds_base']['r4_sell_to_strong_sell']
-    decay_rate = params['decay_rate']
-
-    # Only calculate for rows with complete data
-    valid_df = df[(df['sma_200w'].notna()) & (df['fg_ema'].notna()) & (df['price_to_sma'].notna())].copy()
-
-    if len(valid_df) == 0:
-        return [], [], [], []
-
-    buy_dates = []
-    buy_prices = []
-    sell_dates = []
-    sell_prices = []
-
-    for idx, row in valid_df.iterrows():
-        date = row['time']
-        price = row['close']
-        fg_ema = row['fg_ema']
-        price_to_sma = row['price_to_sma']
-        days_since_start = row['days_since_start']
-
-        # Apply time adjustment with DECAY
-        r1_adj, r2_adj, r3_adj, r4_adj = apply_time_adjustment(
-            r1, r2, r3, r4, days_since_start, decay_rate
-        )
-
-        # Get signals
-        fg_signal_val, _ = get_fg_signal(fg_ema, t1, t2, t3, t4)
-        sma_signal_val, _ = get_sma_signal(price_to_sma, r1_adj, r2_adj, r3_adj, r4_adj)
-        overall_signal_val, _ = combine_signals(fg_signal_val, sma_signal_val)
-
-        # Record buy/sell signals
-        if overall_signal_val >= 3:  # Buy or Strong Buy
-            buy_dates.append(date.strftime('%Y-%m-%d'))
-            buy_prices.append(float(price))
-        elif overall_signal_val <= 1:  # Sell or Strong Sell
-            sell_dates.append(date.strftime('%Y-%m-%d'))
-            sell_prices.append(float(price))
-
-    return buy_dates, buy_prices, sell_dates, sell_prices
 
 # ============================================================================
 # API ENDPOINTS
@@ -418,18 +406,22 @@ def generate_signals(df, params):
 @app.route('/service-worker.js')
 def service_worker():
     """Serve the service worker file"""
-    return send_file('service-worker.js', mimetype='application/javascript')
+    try:
+        return send_file('service-worker.js', mimetype='application/javascript')
+    except:
+        return '', 404
 
 @app.route('/api/data')
 def api_data():
     global DATA_CACHE
     now = time.time()
 
+    # Check cache
     if (DATA_CACHE['chart_data'] and DATA_CACHE['last_update'] and
         now - DATA_CACHE['last_update'] < DATA_CACHE['cache_duration']):
         print("[INFO] Serving from cache")
         response = jsonify(DATA_CACHE['chart_data'])
-        response.headers['Cache-Control'] = 'public, max-age=180'  # Cache for 3 minutes
+        response.headers['Cache-Control'] = 'public, max-age=180'
         return response
 
     print("[INFO] Fetching fresh data")
@@ -437,93 +429,25 @@ def api_data():
     if data is None:
         return jsonify({'error': 'Failed to fetch data'}), 500
 
-    # Convert daily DataFrame to JSON
-    daily_records = []
-    for _, row in data['daily'].iterrows():
-        daily_records.append({
-            'time': row['time'].strftime('%Y-%m-%d'),
-            'open': float(row['open']),
-            'high': float(row['high']),
-            'low': float(row['low']),
-            'close': float(row['close']),
-            'volume': float(row['volume']),
-            'sma_200w': float(row['sma_200w']) if pd.notna(row['sma_200w']) else None,
-            'fg_index': float(row['fg_index']) if pd.notna(row['fg_index']) else None,
-            'fg_ema': float(row['fg_ema']) if 'fg_ema' in row and pd.notna(row['fg_ema']) else None,
-            'price_to_sma': float(row['price_to_sma']) if pd.notna(row['price_to_sma']) else None
-        })
+    # Get latest row for signal calculation
+    latest_row = data['daily'].iloc[-1]
 
     # Calculate current signals
-    current_overall_signal = None
-    current_fg_signal = None
-    current_sma_signal = None
+    signals = get_signals(latest_row, CONFIG)
 
-    if FGSMA_PARAMS is not None and data['current_fg_ema'] is not None and data['current_ratio'] is not None:
-        t1 = FGSMA_PARAMS['fg_thresholds']['t1_strong_buy_to_buy']
-        t2 = FGSMA_PARAMS['fg_thresholds']['t2_buy_to_hold']
-        t3 = FGSMA_PARAMS['fg_thresholds']['t3_hold_to_sell']
-        t4 = FGSMA_PARAMS['fg_thresholds']['t4_sell_to_strong_sell']
-        r1 = FGSMA_PARAMS['sma_ratio_thresholds_base']['r1_strong_buy_to_buy']
-        r2 = FGSMA_PARAMS['sma_ratio_thresholds_base']['r2_buy_to_hold']
-        r3 = FGSMA_PARAMS['sma_ratio_thresholds_base']['r3_hold_to_sell']
-        r4 = FGSMA_PARAMS['sma_ratio_thresholds_base']['r4_sell_to_strong_sell']
-        decay_rate = FGSMA_PARAMS['decay_rate']
-
-        # Apply time adjustment with DECAY
-        r1_adj, r2_adj, r3_adj, r4_adj = apply_time_adjustment(
-            r1, r2, r3, r4, data['current_days_since_start'], decay_rate
-        )
-
-        # Get signals
-        fg_signal_val, fg_signal_text = get_fg_signal(data['current_fg_ema'], t1, t2, t3, t4)
-        sma_signal_val, sma_signal_text = get_sma_signal(data['current_ratio'], r1_adj, r2_adj, r3_adj, r4_adj)
-        overall_signal_val, overall_signal_text = combine_signals(fg_signal_val, sma_signal_val)
-
-        current_overall_signal = {'value': overall_signal_val, 'text': overall_signal_text}
-        current_fg_signal = {'value': fg_signal_val, 'text': fg_signal_text}
-        current_sma_signal = {'value': sma_signal_val, 'text': sma_signal_text}
-
-    # Generate buy/sell signals for visualization (cached for 1 hour)
-    global SIGNALS_CACHE
-    signals_age = time.time() - SIGNALS_CACHE['last_update'] if SIGNALS_CACHE['last_update'] else float('inf')
-    if signals_age > 300 or SIGNALS_CACHE['buy_dates'] is None:  # 5 min cache
-        print("[INFO] Generating signals (cached for 1 hour)")
-        buy_dates, buy_prices, sell_dates, sell_prices = generate_signals(data['daily'], FGSMA_PARAMS)
-        SIGNALS_CACHE = {
-            'buy_dates': buy_dates,
-            'buy_prices': buy_prices,
-            'sell_dates': sell_dates,
-            'sell_prices': sell_prices,
-            'last_update': time.time()
-        }
-    else:
-        print("[INFO] Using cached signals")
-        buy_dates = SIGNALS_CACHE['buy_dates']
-        buy_prices = SIGNALS_CACHE['buy_prices']
-        sell_dates = SIGNALS_CACHE['sell_dates']
-        sell_prices = SIGNALS_CACHE['sell_prices']
-
+    # Prepare response
     response = {
-        'daily': daily_records,
         'current_price': float(data['current_price']) if data['current_price'] else 0,
-        'current_sma': float(data['current_sma']) if data['current_sma'] else 0,
-        'current_fg': int(data['current_fg']) if data['current_fg'] else 50,
-        'current_fg_ema': float(data['current_fg_ema']) if data['current_fg_ema'] else None,
-        'current_ratio': float(data['current_ratio']) if data['current_ratio'] else 1.0,
-        'current_days_since_start': float(data['current_days_since_start']) if data['current_days_since_start'] else 0,
-        'current_overall_signal': current_overall_signal,
-        'current_fg_signal': current_fg_signal,
-        'current_sma_signal': current_sma_signal,
-        'buy_signals': {'dates': buy_dates, 'prices': buy_prices},
-        'sell_signals': {'dates': sell_dates, 'prices': sell_prices},
-        'fgsma_params': FGSMA_PARAMS
+        'timestamp': latest_row['time'].strftime('%Y-%m-%d %H:%M UTC'),
+        'signals': signals,
+        'config': CONFIG
     }
 
     DATA_CACHE['chart_data'] = response
     DATA_CACHE['last_update'] = now
 
     json_response = jsonify(response)
-    json_response.headers['Cache-Control'] = 'public, max-age=180'  # Cache for 3 minutes
+    json_response.headers['Cache-Control'] = 'public, max-age=180'
     return json_response
 
 # ============================================================================
@@ -535,1938 +459,433 @@ def index():
     print("[INFO] Main dashboard route / called")
     html = '''
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    <title>Bitcoin FGSMA Model</title>
-
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#000000">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="BTC FGSMA">
-    <link rel="apple-touch-icon" href="/static/icon-192.png">
-    <meta name="description" content="Fear & Greed + 200W SMA trading signals for Bitcoin">
+    <meta name="apple-mobile-web-app-title" content="BTC Strategy">
+    <link rel="manifest" href="/static/manifest.json">
+    <title>BTC 4-Indicator Strategy</title>
 
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-            background: #f8f9fa;
-            color: #1a1a1a;
-            overflow: hidden;
-        }
-        .container { display: flex; height: 100vh; }
-        .chart-section {
-            width: 70%;
-            display: flex;
-            flex-direction: column;
-            padding: 24px;
-            background: white;
-            overflow-y: auto;
-        }
-        .chart-title {
-            font-size: 28px;
-            font-weight: 700;
-            color: #000;
-            margin-bottom: 20px;
-            letter-spacing: -0.5px;
-        }
-        .chart-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e5e7eb;
-            align-items: center;
-        }
-        .chart-tab {
-            padding: 12px 24px;
-            background: none;
-            border: none;
-            font-size: 14px;
-            font-weight: 600;
-            color: #6b7280;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            transition: all 0.2s;
-        }
-        .chart-tab:hover {
-            color: #000;
-        }
-        .chart-tab.active {
-            color: #10b981;
-            border-bottom-color: #10b981;
-        }
-        .log-toggle {
-            margin-left: auto;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: #f3f4f6;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .log-toggle:hover {
-            background: #e5e7eb;
-        }
-        .log-toggle input {
-            cursor: pointer;
-            width: 16px;
-            height: 16px;
-            accent-color: #10b981;
-        }
-        .log-toggle label {
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            color: #374151;
-        }
-        .time-range-selector {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 16px;
-            padding: 8px;
-            background: #f8f9fa;
-            border-radius: 12px;
-            justify-content: center;
-        }
-        .time-range-btn {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid #e5e7eb;
-            background: #ffffff;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            color: #6b7280;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-transform: uppercase;
-        }
-        .time-range-btn:hover {
-            background: #f3f4f6;
-            border-color: #10b981;
-        }
-        .time-range-btn.active {
-            background: #10b981;
-            border-color: #10b981;
-            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            padding: 1rem;
+            min-height: 100vh;
         }
 
-        .visibility-toggles {
-            display: flex;
-            gap: 16px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 12px;
-            margin-bottom: 16px;
-            justify-content: center;
-            flex-wrap: wrap;
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
         }
-        .visibility-toggles label {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            color: #374151;
-            cursor: pointer;
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
         }
-        .visibility-toggles input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-        .chart-wrapper {
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-        .chart-wrapper.hidden {
-            display: none;
-        }
-        #chart { height: 650px; }
-        #signal-chart { height: 650px; }
-        .data-panel {
-            width: 30%;
-            padding: 24px;
-            background: #ffffff;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            overflow-y: auto;
-            border-left: 1px solid #e5e7eb;
-        }
-        .section-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #000;
-            margin-bottom: 12px;
-        }
-        .data-card {
-            background: #f8f9fa;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 16px;
-            transition: all 0.2s;
-        }
-        .data-card:hover {
-            background: #f3f4f6;
-            border-color: #d1d5db;
-        }
-        .data-label {
-            font-size: 12px;
-            color: #6b7280;
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-        .data-value {
-            font-size: 24px;
+
+        .price {
+            font-size: 3rem;
             font-weight: 700;
-            color: #000;
-        }
-        .data-value.green { color: #10b981; }
-        .data-value.red { color: #ef4444; }
-        .data-value.orange { color: #000000; }
-
-        /* Price flash animations */
-        @keyframes flash-green-anim {
-            0%, 100% { color: #000; }
-            50% { color: #10b981; font-weight: 700; }
-        }
-        @keyframes flash-red-anim {
-            0%, 100% { color: #000; }
-            50% { color: #ef4444; font-weight: 700; }
-        }
-        .data-value.flash-green {
-            animation: flash-green-anim 600ms ease-in-out;
-        }
-        .data-value.flash-red {
-            animation: flash-red-anim 600ms ease-in-out;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
         }
 
-        .fgsma-card {
-            border: none;
-            border-radius: 16px;
-            padding: 24px;
+        .timestamp {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #888;
+            font-size: 1.2rem;
+        }
+
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 2px solid rgba(239, 68, 68, 0.3);
+            border-radius: 15px;
+            padding: 1.5rem;
+            text-align: center;
+            color: #ef4444;
+        }
+
+        .action-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .action {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+        }
+
+        .action.buy { color: #10b981; }
+        .action.sell { color: #ef4444; }
+        .action.hold { color: #f59e0b; }
+
+        .combined-score {
+            font-size: 1.5rem;
+            color: #888;
+        }
+
+        .indicators {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .indicator {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem 1rem;
+            border: 2px solid rgba(255, 255, 255, 0.1);
             transition: all 0.3s ease;
         }
-        .fgsma-card.strong-buy {
-            background: #059669;
-            color: #ffffff;
-            box-shadow: 0 10px 30px rgba(5, 150, 105, 0.3);
+
+        .indicator:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.2);
         }
-        .fgsma-card.buy {
-            background: #d1fae5;
-            color: #065f46;
-            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.2);
-        }
-        .fgsma-card.sell {
-            background: #fecdd3;
-            color: #881337;
-            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.2);
-        }
-        .fgsma-card.strong-sell {
-            background: #dc2626;
-            color: #ffffff;
-            box-shadow: 0 10px 30px rgba(220, 38, 38, 0.3);
-        }
-        .fgsma-card.hold {
-            background: #e5e7eb;
-            color: #374151;
-            box-shadow: 0 10px 30px rgba(107, 114, 128, 0.2);
-        }
-        .fgsma-date {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            opacity: 0.9;
-        }
-        .fgsma-signal-main {
-            text-align: center;
-            margin: 20px 0;
-        }
-        .fgsma-signal-text {
-            font-size: 48px;
-            font-weight: 900;
-            margin-bottom: 8px;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-        .fgsma-label {
-            font-size: 11px;
+
+        .indicator-name {
+            font-size: 0.85rem;
+            color: #888;
             text-transform: uppercase;
             letter-spacing: 1px;
-            opacity: 0.7;
+            margin-bottom: 0.5rem;
         }
-        .fgsma-subsignals {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 16px;
+
+        .indicator-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
         }
-        .fgsma-subsignal {
-            background: rgba(255,255,255,0.3);
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
-        }
-        .fgsma-subsignal-label {
-            font-size: 10px;
+
+        .signal-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            opacity: 0.8;
-            margin-bottom: 6px;
+            letter-spacing: 1px;
         }
-        .fgsma-subsignal-value {
-            font-size: 16px;
-            font-weight: 700;
+
+        .signal-buy {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
         }
-        .signal-strength-bar {
-            margin-top: 8px;
-            height: 4px;
-            background: rgba(0,0,0,0.1);
-            border-radius: 2px;
-            overflow: hidden;
+
+        .signal-sell {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
         }
-        .signal-strength-fill {
-            height: 100%;
-            border-radius: 2px;
-            transition: width 0.5s ease, background 0.3s ease;
+
+        .signal-neutral {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
         }
-        .faq-content {
-            padding: 24px;
-            max-width: 1000px;
-            margin: 0 auto;
+
+        .weighted-signal {
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: #888;
         }
-        .faq-hero {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 16px;
-            padding: 40px 32px;
-            margin-bottom: 32px;
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-            position: relative;
-            overflow: hidden;
+
+        .config {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
-        .faq-hero::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: heroGlow 10s ease-in-out infinite;
-        }
-        @keyframes heroGlow {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(-20px, -20px) scale(1.1); }
-        }
-        .faq-hero-title {
-            font-size: 32px;
-            font-weight: 800;
-            color: #ffffff;
-            margin: 0 0 16px 0;
-            text-align: center;
-            letter-spacing: -0.5px;
-            position: relative;
-            z-index: 1;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-        .faq-hero-text {
-            font-size: 16px;
-            line-height: 1.8;
-            color: rgba(255,255,255,0.95);
-            margin: 0;
-            text-align: center;
-            position: relative;
-            z-index: 1;
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        .faq-hero-text strong {
-            color: #ffffff;
-            font-weight: 700;
-        }
-        .faq-section {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .faq-section-title {
-            font-size: 20px;
-            font-weight: 700;
-            color: #000;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .faq-section-icon {
-            font-size: 24px;
-        }
-        .faq-section-content {
-            color: #374151;
-            line-height: 1.6;
-        }
-        .faq-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            margin-top: 12px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-        .faq-table th {
-            text-align: left;
-            padding: 14px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            font-weight: 600;
-            color: #ffffff;
-            font-size: 13px;
+
+        .config-title {
+            font-size: 1rem;
+            color: #888;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
         }
-        .faq-table th:first-child {
-            border-top-left-radius: 8px;
-        }
-        .faq-table th:last-child {
-            border-top-right-radius: 8px;
-        }
-        .faq-table td {
-            padding: 12px 16px;
-            border: 1px solid #e5e7eb;
-            border-left: none;
-            border-right: none;
-            color: #374151;
-            background: #ffffff;
-            transition: background 0.2s ease;
-        }
-        .faq-table tr:hover td {
-            background: #f8f9fa;
-        }
-        .faq-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-        .faq-table tbody tr:last-child td:first-child {
-            border-bottom-left-radius: 8px;
-        }
-        .faq-table tbody tr:last-child td:last-child {
-            border-bottom-right-radius: 8px;
-        }
-        .faq-stats {
+
+        .config-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-top: 16px;
+            gap: 1rem;
         }
-        .faq-stat {
-            background: #f8f9fa;
-            padding: 16px;
-            border-radius: 8px;
+
+        .config-item {
+            font-size: 0.85rem;
+        }
+
+        .config-label {
+            color: #888;
+            margin-bottom: 0.25rem;
+        }
+
+        .config-value {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .footer {
             text-align: center;
-        }
-        .faq-stat-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: #10b981;
-            margin-bottom: 4px;
-        }
-        .faq-stat-label {
-            font-size: 12px;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .loading {
-            position: fixed;
-            inset: 0;
-            background: rgba(255, 255, 255, 0.95);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            flex-direction: column;
-            gap: 20px;
-        }
-        .loading.hidden { display: none; }
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 3px solid #e5e7eb;
-            border-top-color: #10b981;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-text { color: #6b7280; font-size: 14px; font-weight: 500; }
-
-        /* Collapsible FAQ sections */
-        .faq-section-header {
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 0;
-        }
-        .faq-section-header:hover {
-            opacity: 0.8;
-        }
-        .faq-collapse-icon {
-            font-size: 20px;
-            transition: transform 0.3s;
-        }
-        .faq-section-header.collapsed .faq-collapse-icon {
-            transform: rotate(-90deg);
-        }
-        .faq-section-body {
-            max-height: 5000px;
-            overflow: hidden;
-            transition: max-height 0.3s ease;
-        }
-        .faq-section-body.collapsed {
-            max-height: 0;
+            color: #666;
+            font-size: 0.8rem;
+            margin-top: 2rem;
+            padding: 1rem;
         }
 
-        /* MOBILE RESPONSIVE STYLES - Optimized for Portrait */
-        @media (max-width: 768px) {
-            body {
-                overflow-x: hidden;
-                overflow-y: auto;
+        @media (max-width: 600px) {
+            .price {
+                font-size: 2.5rem;
             }
 
-            .container {
-                flex-direction: column;
-                min-height: 100vh;
-                height: auto;
-                display: flex;
+            .action {
+                font-size: 2rem;
             }
 
-            /* FGSMA Signal at top - clean vertical layout */
-            .data-panel {
-                width: 100%;
-                padding: 12px;
-                border-left: none;
-                border-bottom: 1px solid #e5e7eb;
-                flex-shrink: 0;
-                order: -1; /* Move to top */
+            .indicators {
+                grid-template-columns: repeat(2, 1fr);
             }
 
-            .section-title {
-                font-size: 15px;
-                margin-bottom: 10px;
-                font-weight: 700;
+            .action-card {
+                padding: 1.5rem;
             }
 
-            /* FGSMA card - vertical stack layout */
-            .fgsma-card {
-                padding: 16px;
-                margin-bottom: 12px;
-                border-radius: 12px;
-            }
-
-            .fgsma-date {
-                font-size: 12px;
-                margin-bottom: 8px;
-                opacity: 0.8;
-            }
-
-            .fgsma-signal-text {
-                font-size: 32px;
-                font-weight: 800;
-                margin-bottom: 12px;
-                text-align: center;
-            }
-
-            .fgsma-subsignals {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 8px;
-            }
-
-            .fgsma-subsignal {
-                padding: 12px;
-                border-radius: 8px;
-                text-align: center;
-            }
-
-            .fgsma-subsignal-label {
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                margin-bottom: 4px;
-            }
-
-            .fgsma-subsignal-value {
-                font-size: 18px;
-                font-weight: 700;
-            }
-
-            /* Live market data - separate section with 2x2 grid */
-            .data-card {
-                padding: 12px;
-                margin-bottom: 8px;
-                border-radius: 8px;
-                background: #f9fafb;
-                display: inline-block;
-                width: calc(50% - 6px);
-                margin-right: 6px;
-                vertical-align: top;
-            }
-
-            .data-card:nth-child(2n) {
-                margin-right: 0;
-            }
-
-            .data-label {
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                opacity: 0.6;
-                margin-bottom: 4px;
-            }
-
-            .data-value {
-                font-size: 20px;
-                font-weight: 800;
-            }
-
-            /* Chart section takes remaining space */
-            .chart-section {
-                width: 100%;
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                padding: 8px;
-                overflow: hidden;
-            }
-
-            .chart-title {
-                display: none; /* Hide title to save space */
-            }
-
-            /* Tabs + toggles horizontal (15% of screen) */
-            .chart-tabs {
-                display: flex;
-                gap: 4px;
-                margin-bottom: 6px;
-                flex-shrink: 0;
-            }
-
-            .chart-tab {
-                flex: 1;
-                padding: 8px 4px;
-                font-size: 12px;
-                text-align: center;
-                font-weight: 600;
-                border-radius: 6px;
-            }
-
-            /* Time range selector mobile */
-            .time-range-selector {
-                display: flex;
-                gap: 6px;
-                padding: 8px;
-                margin-bottom: 8px;
-                flex-shrink: 0;
-            }
-
-            .time-range-btn {
-                flex: 1;
-                padding: 10px 8px;
-                font-size: 13px;
-                font-weight: 700;
-            }
-
-            /* Chart much taller for better aspect ratio */
-            #chart, #signal-chart {
-                flex: 1 !important;
-                height: auto !important;
-                min-height: 600px !important;
-                max-height: none !important;
-            }
-
-            .faq-content {
-                padding: 16px;
-            }
-
-            .faq-section {
-                padding: 16px;
-                margin-bottom: 12px;
-            }
-
-            .faq-section-title {
-                font-size: 18px;
-                margin-bottom: 12px;
-            }
-
-            .faq-table {
-                font-size: 12px;
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-
-            .faq-table th,
-            .faq-table td {
-                padding: 8px;
-                white-space: nowrap;
-            }
-
-            .faq-stats {
+            .config-grid {
                 grid-template-columns: 1fr;
-                gap: 12px;
-            }
-
-            .faq-stat {
-                padding: 14px;
-            }
-
-            .faq-stat-value {
-                font-size: 24px;
-            }
-
-            .faq-stat-label {
-                font-size: 11px;
-            }
-
-            /* Make FAQ collapsible on mobile */
-            .faq-section-header {
-                display: flex !important;
-            }
-        }
-
-        /* Extra small devices (phones in portrait, less than 375px) */
-        @media (max-width: 374px) {
-            .chart-title {
-                font-size: 20px;
-            }
-
-            .chart-tab {
-                font-size: 12px;
-                padding: 8px 10px;
-            }
-
-            .fgsma-signal-text {
-                font-size: 32px;
-            }
-
-            .data-value {
-                font-size: 18px;
-            }
-
-            #chart, #signal-chart {
-                height: 300px !important;
-            }
-        }
-
-        /* Landscape orientation on mobile */
-        @media (max-width: 768px) and (orientation: landscape) {
-            #chart, #signal-chart {
-                height: 250px !important;
-            }
-
-            .container {
-                overflow-y: auto;
             }
         }
     </style>
 </head>
 <body>
-    <div class="loading" id="loading">
-        <div class="spinner"></div>
-        <div class="loading-text">Loading data...</div>
-    </div>
-
     <div class="container">
-        <div class="chart-section">
-            <h1 class="chart-title">Bitcoin FGSMA Model</h1>
-
-            <div class="chart-tabs">
-                <button class="chart-tab active" onclick="switchChart('price')">Price Chart</button>
-                <button class="chart-tab" onclick="switchChart('signals')">Historical Signals</button>
-                <button class="chart-tab" onclick="switchChart('faq')">FAQ</button>
-            </div>
-
-            <div class="time-range-selector">
-                <button class="time-range-btn" onclick="setTimeRange('1M')">1M</button>
-                <button class="time-range-btn" onclick="setTimeRange('3M')">3M</button>
-                <button class="time-range-btn" onclick="setTimeRange('1Y')">1Y</button>
-                <button class="time-range-btn active" onclick="setTimeRange('ALL')">All Time</button>
-            </div>
-            <div class="visibility-toggles">
-                <label><input type="checkbox" id="vis-price" checked onchange="toggleVisibility('price')"> Price</label>
-                <label><input type="checkbox" id="vis-sma" checked onchange="toggleVisibility('sma')"> 200W SMA</label>
-                <label><input type="checkbox" id="vis-fg" onchange="toggleVisibility('fg')"> F&G</label>
-                <label><input type="checkbox" id="vis-volume" checked onchange="toggleVisibility('volume')"> Volume</label>
-            </div>
-
-            <div class="chart-wrapper" id="chart"></div>
-            <div class="chart-wrapper hidden" id="signal-chart"></div>
-            <div class="chart-wrapper hidden" id="faq-content"></div>
+        <div class="header">
+            <div class="price" id="price">--</div>
+            <div class="timestamp" id="timestamp">Loading...</div>
         </div>
 
-        <div class="data-panel">
-            <div>
-                <div class="section-title">FGSMA Signal</div>
-                <div class="fgsma-card" id="fgsma-card">
-                    <div class="fgsma-date" id="fgsma-date">--</div>
-                    <div class="fgsma-signal-main">
-                        <div class="fgsma-label">Overall Signal</div>
-                        <div class="fgsma-signal-text" id="fgsma-signal">--</div>
-                        <div class="signal-strength-bar" style="margin-top: 12px;">
-                            <div class="signal-strength-fill" id="overall-strength"></div>
-                        </div>
-                    </div>
-                    <div class="fgsma-subsignals">
-                        <div class="fgsma-subsignal">
-                            <div class="fgsma-subsignal-label">F&G EMA</div>
-                            <div class="fgsma-subsignal-value" id="fg-signal">--</div>
-                            <div class="fgsma-subsignal-numeric" id="fg-numeric" style="font-size: 11px; opacity: 0.8; margin-top: 2px;">--</div>
-                            <div class="signal-strength-bar">
-                                <div class="signal-strength-fill" id="fg-strength"></div>
-                            </div>
-                        </div>
-                        <div class="fgsma-subsignal">
-                            <div class="fgsma-subsignal-label">SMA Ratio</div>
-                            <div class="fgsma-subsignal-value" id="sma-signal">--</div>
-                            <div class="fgsma-subsignal-numeric" id="sma-numeric" style="font-size: 11px; opacity: 0.8; margin-top: 2px;">--</div>
-                            <div class="signal-strength-bar">
-                                <div class="signal-strength-fill" id="sma-strength"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div>
-                <div class="section-title">Live Market Data</div>
-                <div class="data-card">
-                    <div class="data-label">Bitcoin Price</div>
-                    <div class="data-value" id="price">$--,---</div>
-                </div>
-                <div class="data-card">
-                    <div class="data-label">200-Week SMA</div>
-                    <div class="data-value orange" id="sma">$--,---</div>
-                </div>
-                <div class="data-card">
-                    <div class="data-label">Price to SMA Ratio</div>
-                    <div class="data-value" id="ratio">-.--x</div>
-                </div>
-                <div class="data-card">
-                    <div class="data-label">Fear & Greed Index</div>
-                    <div class="data-value" id="fg">--</div>
-                </div>
-            </div>
+        <div id="content">
+            <div class="loading">Loading data...</div>
         </div>
     </div>
 
     <script>
-        let chartData = null;
-        let currentLayout = null;
-        let currentSignalLayout = null;
-        let currentChartView = 'price';
-        let currentTimeRange = 'ALL';
-        let showPrice = true;
-        let showSMA = true;
-        let showFG = false;  // Off by default
-        let showVolume = true;
-
-        function setTimeRange(range) {
-            currentTimeRange = range;
-
-            // Update button states
-            document.querySelectorAll('.time-range-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-
-            // Re-render current chart with new time range
-            if (chartData) {
-                if (currentChartView === 'price') {
-                    renderChart(chartData);
-                } else if (currentChartView === 'signals') {
-                    renderSignalChart(chartData);
-                }
-            }
-        }
-
-        function toggleVisibility(element) {
-            if (element === 'price') showPrice = document.getElementById('vis-price').checked;
-            if (element === 'sma') showSMA = document.getElementById('vis-sma').checked;
-            if (element === 'fg') showFG = document.getElementById('vis-fg').checked;
-            if (element === 'volume') showVolume = document.getElementById('vis-volume').checked;
-
-            // Re-render current chart
-            if (chartData) {
-                if (currentChartView === 'price') {
-                    renderChart(chartData);
-                } else if (currentChartView === 'signals') {
-                    renderSignalChart(chartData);
-                }
-            }
-        }
-
-        function getCutoffDate() {
-            if (currentTimeRange === 'ALL') return null;
-
-            const now = new Date();
-            const cutoff = new Date(now);
-
-            switch(currentTimeRange) {
-                case '1M':
-                    cutoff.setMonth(cutoff.getMonth() - 1);
-                    break;
-                case '3M':
-                    cutoff.setMonth(cutoff.getMonth() - 3);
-                    break;
-                case '1Y':
-                    cutoff.setFullYear(cutoff.getFullYear() - 1);
-                    break;
-            }
-            return cutoff;
-        }
-
-        function getFilteredData(data) {
-            if (!data || !data.daily || currentTimeRange === 'ALL') {
-                return data;
-            }
-
-            const cutoffDate = getCutoffDate();
-            if (!cutoffDate) return data;
-
-            const filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
-
-            return {
-                ...data,
-                daily: filteredDaily
-            };
-        }
-
-        function filterSignalsByTimeRange(signals) {
-            if (currentTimeRange === 'ALL' || !signals || !signals.dates) {
-                return signals;
-            }
-
-            const cutoffDate = getCutoffDate();
-            if (!cutoffDate) return signals;
-
-            const filteredDates = [];
-            const filteredPrices = [];
-
-            for (let i = 0; i < signals.dates.length; i++) {
-                const signalDate = new Date(signals.dates[i]);
-                if (signalDate >= cutoffDate) {
-                    filteredDates.push(signals.dates[i]);
-                    filteredPrices.push(signals.prices[i]);
-                }
-            }
-
-            return {
-                dates: filteredDates,
-                prices: filteredPrices
-            };
-        }
-
-        function toggleFaqSection(header) {
-            if (window.innerWidth > 768) return; // Only work on mobile
-
-            const body = header.nextElementSibling;
-            const icon = header.querySelector('.faq-collapse-icon');
-
-            header.classList.toggle('collapsed');
-            body.classList.toggle('collapsed');
-        }
-
-        function switchChart(view) {
-            currentChartView = view;
-            const priceChart = document.getElementById('chart');
-            const signalChart = document.getElementById('signal-chart');
-            const faqContent = document.getElementById('faq-content');
-            const timeRangeSelector = document.querySelector('.time-range-selector');
-            const tabs = document.querySelectorAll('.chart-tab');
-
-            tabs.forEach(tab => tab.classList.remove('active'));
-
-            if (view === 'price') {
-                priceChart.classList.remove('hidden');
-                signalChart.classList.add('hidden');
-                faqContent.classList.add('hidden');
-                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
-                tabs[0].classList.add('active');
-                if (chartData) {
-                    renderChart(chartData);
-                    setTimeout(() => Plotly.Plots.resize('chart'), 100);
-                }
-            } else if (view === 'signals') {
-                priceChart.classList.add('hidden');
-                signalChart.classList.remove('hidden');
-                faqContent.classList.add('hidden');
-                if (timeRangeSelector) timeRangeSelector.style.display = 'flex';
-                tabs[1].classList.add('active');
-                if (chartData) {
-                    renderSignalChart(chartData);
-                    setTimeout(() => Plotly.Plots.resize('signal-chart'), 100);
-                }
-            } else if (view === 'faq') {
-                priceChart.classList.add('hidden');
-                signalChart.classList.add('hidden');
-                faqContent.classList.remove('hidden');
-                if (timeRangeSelector) timeRangeSelector.style.display = 'none';
-                tabs[2].classList.add('active');
-                if (chartData) {
-                    renderFAQ(chartData);
-                }
-            }
-        }
-
-        // Load toggle states from localStorage
-        function loadToggleStates() {
-            const priceState = localStorage.getItem('toggle-price');
-            const smaState = localStorage.getItem('toggle-sma');
-            const fgState = localStorage.getItem('toggle-fg');
-            const logState = localStorage.getItem('toggle-log');
-
-            document.getElementById('toggle-price').checked = priceState !== 'false';
-            document.getElementById('toggle-sma').checked = smaState !== 'false';
-            document.getElementById('toggle-fg').checked = fgState === 'true';
-            document.getElementById('toggle-log').checked = logState === 'true';
-        }
-
-        function saveToggleState(id, checked) {
-            localStorage.setItem(id, checked);
-        }
-
         async function loadData() {
             try {
-                const res = await fetch('/api/data');
-                const data = await res.json();
-                chartData = data;
+                const response = await fetch('/api/data');
+                const data = await response.json();
 
-                renderChart(data);
-                renderSignalChart(data);
-                updateLiveData(data);
-                updateFGSMASignal(data);
-
-                document.getElementById('loading').classList.add('hidden');
-            } catch (err) {
-                console.error('Error loading data:', err);
-                document.getElementById('loading').classList.add('hidden');
-                alert('Error loading data. Please refresh the page.');
-            }
-        }
-
-        function renderChart(data) {
-            try {
-                // Apply time range filter
-                data = getFilteredData(data);
-
-                const traces = [];
-                const useLogScale = false;  // Linear scale by default
-
-            if (showPrice && data.daily) {
-                traces.push({
-                    type: 'candlestick',
-                    x: data.daily.map(d => d.time),
-                    open: data.daily.map(d => d.open),
-                    high: data.daily.map(d => d.high),
-                    low: data.daily.map(d => d.low),
-                    close: data.daily.map(d => d.close),
-                    name: 'BTC/USD',
-                    increasing: {line: {color: '#10b981'}},
-                    decreasing: {line: {color: '#ef4444'}},
-                    yaxis: 'y',
-                    showlegend: true
-                });
-            }
-
-            if (showVolume && data.daily) {
-                traces.push({
-                    type: 'bar',
-                    x: data.daily.map(d => d.time),
-                    y: data.daily.map(d => d.volume),
-                    name: 'Volume',
-                    marker: {color: data.daily.map(d => d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)')},
-                    yaxis: 'y2',
-                    showlegend: true
-                });
-            }
-
-            if (showSMA && data.daily) {
-                const smaData = data.daily.filter(d => d.sma_200w !== null);
-                traces.push({
-                    type: 'scatter',
-                    mode: 'lines',
-                    x: smaData.map(d => d.time),
-                    y: smaData.map(d => d.sma_200w),
-                    name: '200W SMA',
-                    line: {color: '#f59e0b', width: 2},
-                    yaxis: 'y',
-                    showlegend: true
-                });
-            }
-
-            if (showFG && data.daily) {
-                const fgData = data.daily.filter(d => d.fg_index !== null);
-                traces.push({
-                    type: 'scatter',
-                    mode: 'lines',
-                    x: fgData.map(d => d.time),
-                    y: fgData.map(d => d.fg_index),
-                    name: 'Fear & Greed',
-                    line: {color: '#8b5cf6', width: 2, shape: 'spline', smoothing: 0.3},
-                    yaxis: 'y3',
-                    showlegend: true
-                });
-            }
-
-            // Extend x-axis ~2 years into future
-            const lastDate = new Date(data.daily[data.daily.length - 1].time);
-            const futureDate = new Date(lastDate);
-            futureDate.setFullYear(futureDate.getFullYear() + 2);
-
-            const layout = {
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#f8f9fa',
-                font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'},
-                showlegend: true,
-                legend: {
-                    font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
-                    bgcolor: 'rgba(248,249,250,0.95)',
-                    bordercolor: '#d1d5db',
-                    borderwidth: 1,
-                    itemclick: false,
-                    itemdoubleclick: false,
-                    orientation: 'h',
-                    x: 0,
-                    y: 1.08,
-                    xanchor: 'left',
-                    yanchor: 'top'
-                },
-                hovermode: 'x unified',
-                dragmode: false,
-                xaxis: {
-                    type: 'date',
-                    gridcolor: '#e5e7eb',
-                    fixedrange: true,
-                    autorange: true,
-                    rangeslider: {visible: false}
-                },
-                yaxis: {
-                    title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
-                    gridcolor: '#e5e7eb',
-                    side: 'left',
-                    domain: [0.25, 1],
-                    fixedrange: true,
-                    autorange: true,
-                    type: useLogScale ? 'log' : 'linear'
-                },
-                yaxis2: {
-                    gridcolor: 'transparent',
-                    showticklabels: false,
-                    domain: [0, 0.2],
-                    fixedrange: true,
-                    autorange: true
-                },
-                yaxis3: {
-                    title: {text: 'Fear & Greed', font: {size: 12, color: '#6b7280'}},
-                    gridcolor: 'transparent',
-                    side: 'right',
-                    overlaying: 'y',
-                    fixedrange: true,
-                    autorange: true
-                },
-                margin: {l: 60, r: 80, t: 60, b: 60}
-            };
-
-            const config = {
-                responsive: true,
-                displayModeBar: false,
-                displaylogo: false,
-                staticPlot: true  // Fully static - no zoom/pan
-            };
-
-            // Preserve zoom/pan state on refresh, but reset when toggling scale
-            const chartDiv = document.getElementById('chart');
-            const previousScale = currentLayout ? currentLayout.yaxis.type : 'linear';
-            const scaleChanged = previousScale !== (useLogScale ? 'log' : 'linear');
-
-            if (!scaleChanged && currentLayout && chartDiv.layout && chartDiv.layout.xaxis) {
-                layout.xaxis.range = chartDiv.layout.xaxis.range;
-                if (!useLogScale && chartDiv.layout.yaxis) {
-                    layout.yaxis.range = chartDiv.layout.yaxis.range;
-                }
-            }
-            // If scale changed, let Plotly auto-calculate the axis range
-
-            Plotly.newPlot('chart', traces, layout, config);
-            currentLayout = layout;
-            } catch (err) {
-                console.error('Error rendering chart:', err);
-            }
-        }
-
-        function renderSignalChart(data) {
-            try {
-            // Apply time range filter
-            data = getFilteredData(data);
-
-            const traces = [];
-            const useLogScale = false;  // Linear scale by default
-
-            // BTC price line
-            traces.push({
-                type: 'scatter',
-                mode: 'lines',
-                x: data.daily.map(d => d.time),
-                y: data.daily.map(d => d.close),
-                name: 'BTC Price',
-                line: {color: '#1f2937', width: 1.5},
-                showlegend: true
-            });
-
-            // Filter buy signals by time range
-            if (data.buy_signals && data.buy_signals.dates.length > 0) {
-                const filteredBuys = filterSignalsByTimeRange(data.buy_signals);
-                if (filteredBuys.dates.length > 0) {
-                    traces.push({
-                        type: 'scatter',
-                        mode: 'markers',
-                        x: filteredBuys.dates,
-                        y: filteredBuys.prices,
-                        name: `Buy (${filteredBuys.dates.length})`,
-                        marker: {color: '#10b981', size: 6, opacity: 0.6},
-                        showlegend: true
-                    });
-                }
-            }
-
-            // Filter sell signals by time range
-            if (data.sell_signals && data.sell_signals.dates.length > 0) {
-                const filteredSells = filterSignalsByTimeRange(data.sell_signals);
-                if (filteredSells.dates.length > 0) {
-                    traces.push({
-                        type: 'scatter',
-                        mode: 'markers',
-                        x: filteredSells.dates,
-                        y: filteredSells.prices,
-                        name: `Sell (${filteredSells.dates.length})`,
-                        marker: {color: '#ef4444', size: 6, opacity: 0.6},
-                        showlegend: true
-                    });
-                }
-            }
-
-            const layout = {
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#f8f9fa',
-                font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'},
-                showlegend: true,
-                legend: {
-                    font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
-                    bgcolor: 'rgba(248,249,250,0.95)',
-                    bordercolor: '#d1d5db',
-                    borderwidth: 1,
-                    orientation: 'h',
-                    x: 0,
-                    y: 1.08,
-                    xanchor: 'left',
-                    yanchor: 'top'
-                },
-                hovermode: 'closest',
-                dragmode: false,
-                xaxis: {
-                    type: 'date',
-                    gridcolor: '#e5e7eb',
-                    fixedrange: true,
-                    autorange: true
-                },
-                yaxis: {
-                    title: {text: 'Price (USD)', font: {size: 12, color: '#6b7280'}},
-                    gridcolor: '#e5e7eb',
-                    fixedrange: true,
-                    autorange: true,
-                    type: useLogScale ? 'log' : 'linear'
-                },
-                margin: {l: 60, r: 40, t: 60, b: 60}
-            };
-
-            const config = {
-                responsive: true,
-                displayModeBar: false,
-                displaylogo: false,
-                staticPlot: true  // Fully static - no zoom/pan
-            };
-
-            // Preserve zoom/pan state, but reset when toggling scale
-            const chartDiv = document.getElementById('signal-chart');
-            const previousScale = currentSignalLayout ? currentSignalLayout.yaxis.type : 'linear';
-            const scaleChanged = previousScale !== (useLogScale ? 'log' : 'linear');
-
-            if (!scaleChanged && currentSignalLayout && chartDiv.layout && chartDiv.layout.xaxis) {
-                layout.xaxis.range = chartDiv.layout.xaxis.range;
-                if (!useLogScale && chartDiv.layout.yaxis) {
-                    layout.yaxis.range = chartDiv.layout.yaxis.range;
-                }
-            }
-            // If scale changed, let Plotly auto-calculate the axis range
-
-            Plotly.newPlot('signal-chart', traces, layout, config);
-            currentSignalLayout = layout;
-            } catch (err) {
-                console.error('Error rendering signal chart:', err);
-            }
-        }
-
-        let previousPrice = null;
-
-        function updateLiveData(data) {
-            const priceElement = document.getElementById('price');
-            const newPrice = data.current_price;
-
-            // Format without decimals
-            const formattedPrice = '$' + newPrice.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-            priceElement.textContent = formattedPrice;
-
-            // Flash animation based on price change
-            if (previousPrice !== null && previousPrice !== newPrice) {
-                priceElement.classList.remove('flash-green', 'flash-red');
-                void priceElement.offsetWidth; // Trigger reflow
-
-                if (newPrice > previousPrice) {
-                    priceElement.classList.add('flash-green');
-                } else if (newPrice < previousPrice) {
-                    priceElement.classList.add('flash-red');
-                }
-
-                setTimeout(() => {
-                    priceElement.classList.remove('flash-green', 'flash-red');
-                }, 600);
-            }
-            previousPrice = newPrice;
-
-            // Update other values without decimals
-            document.getElementById('sma').textContent = '$' + data.current_sma.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-            document.getElementById('ratio').textContent = data.current_ratio.toFixed(2) + 'x';
-            document.getElementById('fg').textContent = data.current_fg;
-
-            // Update numeric values in signal card
-            if (data.current_fg_ema !== null && data.current_fg_ema !== undefined) {
-                document.getElementById('fg-numeric').textContent = data.current_fg_ema.toFixed(1);
-            }
-            if (data.current_ratio !== null && data.current_ratio !== undefined) {
-                document.getElementById('sma-numeric').textContent = data.current_ratio.toFixed(2) + 'x';
-            }
-        }
-
-        function renderPerformanceChart() {
-            if (!chartData || !chartData.daily || !chartData.fgsma_params) {
-                console.log('Missing data for performance chart');
-                return;
-            }
-
-            const daily = chartData.daily;
-            const params = chartData.fgsma_params;
-
-            // Find start index (where we have both F&G EMA and SMA)
-            let startIdx = 0;
-            for (let i = 0; i < daily.length; i++) {
-                if (daily[i].fg_ema !== null && daily[i].sma_200w !== null && daily[i].price_to_sma !== null) {
-                    startIdx = i;
-                    break;
-                }
-            }
-
-            const totalDays = daily.length - startIdx;
-            const dailyInvestment = 1;
-            const totalCapital = totalDays * dailyInvestment;
-
-            // Calculate DCA portfolio (buy $1 of BTC every day)
-            let dcaCash = 0;
-            let dcaBtc = 0;
-            const dcaPortfolioValues = [];
-            const dcaDates = [];
-
-            // Calculate FGSMA portfolio (start with total capital upfront)
-            let fgsmaCash = totalCapital;
-            let fgsmaBtc = 0;
-            const fgsmaPortfolioValues = [];
-            const fgsmaDates = [];
-
-            const t1 = params.fg_thresholds.t1_strong_buy_to_buy;
-            const t2 = params.fg_thresholds.t2_buy_to_hold;
-            const t3 = params.fg_thresholds.t3_hold_to_sell;
-            const t4 = params.fg_thresholds.t4_sell_to_strong_sell;
-            const r1_base = params.sma_ratio_thresholds_base.r1_strong_buy_to_buy;
-            const r2_base = params.sma_ratio_thresholds_base.r2_buy_to_hold;
-            const r3_base = params.sma_ratio_thresholds_base.r3_hold_to_sell;
-            const r4_base = params.sma_ratio_thresholds_base.r4_sell_to_strong_sell;
-            const decayRate = params.decay_rate;
-
-            for (let i = startIdx; i < daily.length; i++) {
-                const row = daily[i];
-                if (!row.fg_ema || !row.price_to_sma || !row.close) continue;
-
-                const date = row.time;
-                const price = row.close;
-                const fgEma = row.fg_ema;
-                const priceToSma = row.price_to_sma;
-                const daysFromStart = i - startIdx;
-
-                // DCA: buy $1 every day
-                dcaCash += dailyInvestment;
-                const btcBought = dailyInvestment / price;
-                dcaBtc += btcBought;
-                dcaPortfolioValues.push(dcaBtc * price);
-                dcaDates.push(date);
-
-                // FGSMA: get signal (no daily investment, started with all capital)
-
-                // Calculate decayed thresholds (EXPONENTIAL DECAY)
-                const years = daysFromStart / 365.25;
-                const decayFactor = Math.pow(1 - decayRate, years);
-                const r1 = r1_base * decayFactor;
-                const r2 = r2_base * decayFactor;
-                const r3 = r3_base * decayFactor;
-                const r4 = r4_base * decayFactor;
-
-                // Get F&G signal
-                let fgSignal = 2;
-                if (fgEma <= t1) fgSignal = 4;
-                else if (fgEma <= t2) fgSignal = 3;
-                else if (fgEma <= t3) fgSignal = 2;
-                else if (fgEma <= t4) fgSignal = 1;
-                else fgSignal = 0;
-
-                // Get SMA signal
-                let smaSignal = 2;
-                if (priceToSma <= r1) smaSignal = 4;
-                else if (priceToSma <= r2) smaSignal = 3;
-                else if (priceToSma <= r3) smaSignal = 2;
-                else if (priceToSma <= r4) smaSignal = 1;
-                else smaSignal = 0;
-
-                // Combine signals (simplified)
-                let overallSignal = 2;
-                if (fgSignal === 4 && smaSignal === 4) overallSignal = 4;
-                else if (fgSignal === 0 && smaSignal === 0) overallSignal = 0;
-                else if ((fgSignal === 4 && smaSignal >= 2) || (smaSignal === 4 && fgSignal >= 2)) overallSignal = 3;
-                else if ((fgSignal === 0 && smaSignal <= 2) || (smaSignal === 0 && fgSignal <= 2)) overallSignal = 1;
-                else if (fgSignal === 2 && smaSignal === 2) overallSignal = 2;
-                else if ((fgSignal >= 3 && smaSignal <= 1) || (smaSignal >= 3 && fgSignal <= 1)) overallSignal = 2;
-                else if (fgSignal === 3 && smaSignal === 3) overallSignal = 3;
-                else if (fgSignal === 1 && smaSignal === 1) overallSignal = 1;
-                else if (fgSignal >= 3 || smaSignal >= 3) overallSignal = 3;
-                else if (fgSignal <= 1 || smaSignal <= 1) overallSignal = 1;
-
-                // Execute trades
-                if (overallSignal >= 3 && fgsmaCash > 0) {
-                    // Buy: invest available cash
-                    const buyAmount = fgsmaCash;
-                    fgsmaBtc += buyAmount / price;
-                    fgsmaCash -= buyAmount;
-                } else if (overallSignal <= 1 && fgsmaBtc > 0) {
-                    // Sell: liquidate all BTC
-                    fgsmaCash += fgsmaBtc * price;
-                    fgsmaBtc = 0;
-                }
-
-                const fgsmaValue = fgsmaBtc * price + fgsmaCash;
-                fgsmaPortfolioValues.push(fgsmaValue);
-                fgsmaDates.push(date);
-            }
-
-            console.log(`DCA final: $${dcaPortfolioValues[dcaPortfolioValues.length-1].toFixed(2)}`);
-            console.log(`FGSMA final: $${fgsmaPortfolioValues[fgsmaPortfolioValues.length-1].toFixed(2)}`);
-
-            // Create Plotly chart
-            const traces = [
-                {
-                    type: 'scatter',
-                    mode: 'lines',
-                    x: fgsmaDates,
-                    y: fgsmaPortfolioValues,
-                    name: 'FGSMA Strategy',
-                    line: {color: '#10b981', width: 3},
-                    fill: 'tozeroy',
-                    fillcolor: 'rgba(16, 185, 129, 0.1)'
-                },
-                {
-                    type: 'scatter',
-                    mode: 'lines',
-                    x: dcaDates,
-                    y: dcaPortfolioValues,
-                    name: 'DCA Baseline',
-                    line: {color: '#6b7280', width: 2, dash: 'dash'}
-                }
-            ];
-
-            const layout = {
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#f8f9fa',
-                font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, sans-serif', size: 11},
-                showlegend: true,
-                legend: {
-                    font: {color: '#1f2937', size: 12, family: '-apple-system, BlinkMacSystemFont, sans-serif'},
-                    bgcolor: 'rgba(248,249,250,0.95)',
-                    bordercolor: '#d1d5db',
-                    borderwidth: 1,
-                    x: 0.02,
-                    y: 0.98,
-                    xanchor: 'left',
-                    yanchor: 'top',
-                    orientation: 'v'
-                },
-                hovermode: 'x unified',
-                xaxis: {
-                    type: 'date',
-                    gridcolor: '#e5e7eb',
-                    title: {text: 'Date', font: {size: 11, color: '#6b7280'}}
-                },
-                yaxis: {
-                    title: {text: 'Portfolio Value (USD)', font: {size: 11, color: '#6b7280'}},
-                    gridcolor: '#e5e7eb',
-                    type: 'linear'
-                },
-                margin: {l: 60, r: 20, t: 30, b: 40}
-            };
-
-            const config = {
-                responsive: true,
-                displayModeBar: window.innerWidth > 768,
-                displaylogo: false,
-                modeBarButtonsToRemove: window.innerWidth <= 768 ? ['lasso2d', 'select2d'] : [],
-                touchAction: 'pan'
-            };
-
-            Plotly.newPlot('performance-chart', traces, layout, config);
-
-            console.log('Performance chart rendered');
-        }
-
-        function renderFAQ(data) {
-            const faqDiv = document.getElementById('faq-content');
-            const params = data.fgsma_params;
-
-            if (!params) {
-                faqDiv.innerHTML = '<div class="faq-content"><p>Loading parameters...</p></div>';
-                return;
-            }
-
-            const t1 = params.fg_thresholds.t1_strong_buy_to_buy.toFixed(2);
-            const t2 = params.fg_thresholds.t2_buy_to_hold.toFixed(2);
-            const t3 = params.fg_thresholds.t3_hold_to_sell.toFixed(2);
-            const t4 = params.fg_thresholds.t4_sell_to_strong_sell.toFixed(2);
-            const r1 = params.sma_ratio_thresholds_base.r1_strong_buy_to_buy.toFixed(2);
-            const r2 = params.sma_ratio_thresholds_base.r2_buy_to_hold.toFixed(2);
-            const r3 = params.sma_ratio_thresholds_base.r3_hold_to_sell.toFixed(2);
-            const r4 = params.sma_ratio_thresholds_base.r4_sell_to_strong_sell.toFixed(2);
-            const decay = (params.decay_rate * 100).toFixed(2);
-
-            // Calculate 2026 values (EXPONENTIAL DECAY)
-            const years = 7.28;
-            const decayFactor = Math.pow(1 - params.decay_rate, years);
-            const r1_2026 = (r1 * decayFactor).toFixed(2);
-            const r2_2026 = (r2 * decayFactor).toFixed(2);
-            const r3_2026 = (r3 * decayFactor).toFixed(2);
-            const r4_2026 = (r4 * decayFactor).toFixed(2);
-
-            faqDiv.innerHTML = `
-                <div class="faq-content">
-                    <div class="faq-hero">
-                        <h2 class="faq-hero-title">How the FGSMA Strategy Works</h2>
-                        <p class="faq-hero-text">
-                            The FGSMA model combines two powerful indicators to generate high-conviction trading signals.
-                            <strong>Fear & Greed sentiment</strong> is smoothed using a 60-day exponential moving average to identify
-                            extreme market emotions. <strong>Price positioning</strong> relative to the 200-week simple moving average
-                            reveals whether Bitcoin is historically cheap or expensive. Both indicators use a 5-level threshold system
-                            (Strong Buy, Buy, Hold, Sell, Strong Sell) and must agree to generate signals—this dual confirmation
-                            dramatically reduces false positives. The SMA thresholds decay ${decay}% annually using exponential decay
-                            to account for Bitcoin's maturing market dynamics and volatility compression over time.
-                        </p>
-                    </div>
-
-                    <div class="faq-section">
-                        <div class="faq-section-header" onclick="toggleFaqSection(this)">
-                            <div class="faq-section-title" style="margin-bottom: 0;">📊 Indicator Thresholds</div>
-                            <span class="faq-collapse-icon">▼</span>
+                if (data.error) {
+                    document.getElementById('content').innerHTML = `
+                        <div class="error">
+                            Failed to load data: ${data.error}
                         </div>
-                        <div class="faq-section-body" id="faq-section-1">
+                    `;
+                    return;
+                }
 
-                            <div style="margin-bottom: 24px;">
-                                <div style="font-weight: 600; margin-bottom: 8px; color: #1f2937;">Fear & Greed EMA (60-day)</div>
-                                <p style="margin-bottom: 12px; font-size: 13px; color: #4b5563;">Smoothed sentiment indicator. Low values indicate extreme fear (contrarian buying opportunity), high values indicate extreme greed (potential market top).</p>
-                                <table class="faq-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Range</th>
-                                            <th>Signal</th>
-                                            <th>Interpretation</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>0 - ${t1}</td>
-                                            <td><strong>Strong Buy</strong></td>
-                                            <td>Extreme fear</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${t1} - ${t2}</td>
-                                            <td><strong>Buy</strong></td>
-                                            <td>Moderate fear</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${t2} - ${t3}</td>
-                                            <td><strong>Hold</strong></td>
-                                            <td>Neutral sentiment</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${t3} - ${t4}</td>
-                                            <td><strong>Sell</strong></td>
-                                            <td>Moderate greed</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${t4} - 100</td>
-                                            <td><strong>Strong Sell</strong></td>
-                                            <td>Extreme greed</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                // Update price and timestamp
+                document.getElementById('price').textContent = `$${data.current_price.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+                document.getElementById('timestamp').textContent = `Last updated: ${data.timestamp}`;
+
+                const signals = data.signals;
+                const config = data.config;
+
+                // Build indicators HTML
+                let indicatorsHTML = '';
+
+                // 200W SMA
+                indicatorsHTML += `
+                    <div class="indicator">
+                        <div class="indicator-name">200W SMA</div>
+                        <div class="indicator-value">${signals['200w'].ratio}</div>
+                        <span class="signal-badge signal-${signals['200w'].signal_text === 'BUY' ? 'buy' : (signals['200w'].signal_text === 'SELL' ? 'sell' : 'neutral')}">
+                            ${signals['200w'].signal_text}
+                        </span>
+                        <div class="weighted-signal">
+                            Weight: ${signals['200w'].weight}x → ${signals['200w'].weighted >= 0 ? '+' : ''}${signals['200w'].weighted}
+                        </div>
+                    </div>
+                `;
+
+                // 50W MA
+                indicatorsHTML += `
+                    <div class="indicator">
+                        <div class="indicator-name">50W MA (${signals['50w'].regime})</div>
+                        <div class="indicator-value">${signals['50w'].ratio}</div>
+                        <span class="signal-badge signal-${signals['50w'].signal_text === 'BUY' ? 'buy' : (signals['50w'].signal_text === 'SELL' ? 'sell' : 'neutral')}">
+                            ${signals['50w'].signal_text}
+                        </span>
+                        <div class="weighted-signal">
+                            Weight: ${signals['50w'].weight}x → ${signals['50w'].weighted >= 0 ? '+' : ''}${signals['50w'].weighted}
+                        </div>
+                    </div>
+                `;
+
+                // F&G
+                indicatorsHTML += `
+                    <div class="indicator">
+                        <div class="indicator-name">Fear & Greed</div>
+                        <div class="indicator-value">${signals.fg.value}</div>
+                        <span class="signal-badge signal-${signals.fg.signal_text === 'BUY' ? 'buy' : (signals.fg.signal_text === 'SELL' ? 'sell' : 'neutral')}">
+                            ${signals.fg.signal_text}
+                        </span>
+                        <div class="weighted-signal">
+                            Weight: ${signals.fg.weight}x → ${signals.fg.weighted >= 0 ? '+' : ''}${signals.fg.weighted}
+                        </div>
+                    </div>
+                `;
+
+                // RSI
+                indicatorsHTML += `
+                    <div class="indicator">
+                        <div class="indicator-name">RSI</div>
+                        <div class="indicator-value">${signals.rsi.value}</div>
+                        <span class="signal-badge signal-${signals.rsi.signal_text === 'BUY' ? 'buy' : (signals.rsi.signal_text === 'SELL' ? 'sell' : 'neutral')}">
+                            ${signals.rsi.signal_text}
+                        </span>
+                        <div class="weighted-signal">
+                            Weight: ${signals.rsi.weight}x → ${signals.rsi.weighted >= 0 ? '+' : ''}${signals.rsi.weighted}
+                        </div>
+                    </div>
+                `;
+
+                // Build config HTML
+                const p = config.parameters;
+                const configHTML = `
+                    <div class="config">
+                        <div class="config-title">Strategy Configuration</div>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <div class="config-label">200W Thresholds</div>
+                                <div class="config-value">Buy: ${signals['200w'].buy_threshold} | Sell: ${signals['200w'].sell_threshold}</div>
                             </div>
-
-                            <div style="margin-bottom: 24px;">
-                                <div style="font-weight: 600; margin-bottom: 8px; color: #1f2937;">Price / 200-Week SMA Ratio</div>
-                                <p style="margin-bottom: 12px; font-size: 13px; color: #4b5563;">Measures how far price has deviated from its long-term average. Thresholds decay ${decay}% annually as Bitcoin matures and volatility compresses.</p>
-                                <table class="faq-table">
-                                    <thead>
-                                        <tr>
-                                            <th>2018 Threshold</th>
-                                            <th>2026 Threshold</th>
-                                            <th>Signal</th>
-                                            <th>Interpretation</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>&lt; ${r1}x</td>
-                                            <td>&lt; ${r1_2026}x</td>
-                                            <td><strong>Strong Buy</strong></td>
-                                            <td>Deep below SMA</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${r1}x - ${r2}x</td>
-                                            <td>${r1_2026}x - ${r2_2026}x</td>
-                                            <td><strong>Buy</strong></td>
-                                            <td>Below SMA</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${r2}x - ${r3}x</td>
-                                            <td>${r2_2026}x - ${r3_2026}x</td>
-                                            <td><strong>Hold</strong></td>
-                                            <td>Near fair value</td>
-                                        </tr>
-                                        <tr>
-                                            <td>${r3}x - ${r4}x</td>
-                                            <td>${r3_2026}x - ${r4_2026}x</td>
-                                            <td><strong>Sell</strong></td>
-                                            <td>Extended above SMA</td>
-                                        </tr>
-                                        <tr>
-                                            <td>&gt; ${r4}x</td>
-                                            <td>&gt; ${r4_2026}x</td>
-                                            <td><strong>Strong Sell</strong></td>
-                                            <td>Extreme overvaluation</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div style="margin-top: 8px; font-size: 11px; color: #6b7280;">
-                                    Decay factor (2018→2026): ${((1 - decayFactor) * 100).toFixed(1)}% reduction
-                                </div>
+                            <div class="config-item">
+                                <div class="config-label">50W Bull</div>
+                                <div class="config-value">Ext: ${p.ma_50w.bull_ext.toFixed(2)} | Supp: ${p.ma_50w.bull_supp.toFixed(2)}</div>
+                            </div>
+                            <div class="config-item">
+                                <div class="config-label">50W Bear</div>
+                                <div class="config-value">Res: ${p.ma_50w.bear_res.toFixed(2)} | Deep: ${p.ma_50w.bear_deep.toFixed(2)}</div>
+                            </div>
+                            <div class="config-item">
+                                <div class="config-label">F&G EMA</div>
+                                <div class="config-value">${p.fg.ema_period}d | Buy: <${signals.fg.buy_threshold} | Sell: >${signals.fg.sell_threshold}</div>
+                            </div>
+                            <div class="config-item">
+                                <div class="config-label">RSI</div>
+                                <div class="config-value">${p.rsi.period}d | Buy: <${signals.rsi.buy_threshold} | Sell: >${signals.rsi.sell_threshold}</div>
+                            </div>
+                            <div class="config-item">
+                                <div class="config-label">Performance</div>
+                                <div class="config-value">${config.total_return.toFixed(0)}% Return</div>
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
+                `;
 
-            // Make FAQ sections collapsible on mobile only
-            if (window.innerWidth <= 768) {
-                document.querySelectorAll('.faq-section-header').forEach(header => {
-                    header.style.display = 'flex';
-                });
+                // Build main content
+                document.getElementById('content').innerHTML = `
+                    <div class="action-card">
+                        <div class="action ${signals.action_class}">
+                            ${signals.action}
+                        </div>
+                        <div class="combined-score">Combined Signal: ${signals.combined >= 0 ? '+' : ''}${signals.combined}</div>
+                    </div>
+
+                    <div class="indicators">
+                        ${indicatorsHTML}
+                    </div>
+
+                    ${configHTML}
+
+                    <div class="footer">
+                        5-Stage Optimized Strategy | Auto-refresh every 5 minutes
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('content').innerHTML = `
+                    <div class="error">
+                        Error loading data. Please try again.
+                    </div>
+                `;
             }
         }
 
-        function calculateSignalStrength(value, thresholds, isInverted = false) {
-            // Calculate how strong a signal is based on distance from boundaries
-            // Returns {strength: 0-100, color: '#color'}
-            const [t1, t2, t3, t4] = thresholds;
-
-            let strength = 0;
-            let color = '#9ca3af';
-
-            if (isInverted) {
-                // For F&G: low = buy, high = sell
-                if (value <= t1) {
-                    strength = 100 - (value / t1) * 30; // Strong Buy: 70-100%
-                    color = '#059669';
-                } else if (value <= t2) {
-                    const range = t2 - t1;
-                    const pos = (value - t1) / range;
-                    strength = 70 - pos * 20; // Buy: 50-70%
-                    color = '#10b981';
-                } else if (value <= t3) {
-                    strength = 30; // Hold: 30%
-                    color = '#6b7280';
-                } else if (value <= t4) {
-                    const range = t4 - t3;
-                    const pos = (value - t3) / range;
-                    strength = 30 + pos * 20; // Sell: 30-50%
-                    color = '#ef4444';
-                } else {
-                    strength = 50 + ((value - t4) / (100 - t4)) * 50; // Strong Sell: 50-100%
-                    color = '#dc2626';
-                }
-            } else {
-                // For SMA: low = buy, high = sell (same as inverted F&G logic actually)
-                if (value <= t1) {
-                    strength = 100 - (value / t1) * 30;
-                    color = '#059669';
-                } else if (value <= t2) {
-                    const range = t2 - t1;
-                    const pos = (value - t1) / range;
-                    strength = 70 - pos * 20;
-                    color = '#10b981';
-                } else if (value <= t3) {
-                    strength = 30;
-                    color = '#6b7280';
-                } else if (value <= t4) {
-                    const range = t4 - t3;
-                    const pos = (value - t3) / range;
-                    strength = 30 + pos * 20;
-                    color = '#ef4444';
-                } else {
-                    const maxRatio = 10; // Assume max ratio of 10x for calculation
-                    strength = 50 + Math.min(((value - t4) / (maxRatio - t4)) * 50, 50);
-                    color = '#dc2626';
-                }
-            }
-
-            return {strength: Math.min(100, Math.max(0, strength)), color};
-        }
-
-        function updateSignalStrengthBars(data) {
-            if (!data.fgsma_params || !data.current_fg_ema || !data.current_ratio ||
-                !data.current_overall_signal || data.current_days_since_start === undefined) {
-                console.warn('Missing data for strength bars');
-                return;
-            }
-
-            const params = data.fgsma_params;
-            const fgEma = data.current_fg_ema;
-            const ratio = data.current_ratio;
-
-            // F&G thresholds
-            const t1 = params.fg_thresholds.t1_strong_buy_to_buy;
-            const t2 = params.fg_thresholds.t2_buy_to_hold;
-            const t3 = params.fg_thresholds.t3_hold_to_sell;
-            const t4 = params.fg_thresholds.t4_sell_to_strong_sell;
-
-            // Calculate decayed SMA thresholds (EXPONENTIAL DECAY)
-            const years = data.current_days_since_start / 365.25;
-            const decayFactor = Math.pow(1 - params.decay_rate, years);
-            const r1 = params.sma_ratio_thresholds_base.r1_strong_buy_to_buy * decayFactor;
-            const r2 = params.sma_ratio_thresholds_base.r2_buy_to_hold * decayFactor;
-            const r3 = params.sma_ratio_thresholds_base.r3_hold_to_sell * decayFactor;
-            const r4 = params.sma_ratio_thresholds_base.r4_sell_to_strong_sell * decayFactor;
-
-            // Calculate strengths
-            const fgStrength = calculateSignalStrength(fgEma, [t1, t2, t3, t4], true);
-            const smaStrength = calculateSignalStrength(ratio, [r1, r2, r3, r4], false);
-
-            // Overall strength is average of both
-            const overallStrength = {
-                strength: (fgStrength.strength + smaStrength.strength) / 2,
-                color: data.current_overall_signal.value >= 3 ? '#10b981' :
-                       data.current_overall_signal.value <= 1 ? '#ef4444' : '#6b7280'
-            };
-
-            // Update bars
-            const fgBar = document.getElementById('fg-strength');
-            const smaBar = document.getElementById('sma-strength');
-            const overallBar = document.getElementById('overall-strength');
-
-            fgBar.style.width = fgStrength.strength + '%';
-            fgBar.style.background = `linear-gradient(90deg, ${fgStrength.color}, ${fgStrength.color}99)`;
-
-            smaBar.style.width = smaStrength.strength + '%';
-            smaBar.style.background = `linear-gradient(90deg, ${smaStrength.color}, ${smaStrength.color}99)`;
-
-            overallBar.style.width = overallStrength.strength + '%';
-            overallBar.style.background = `linear-gradient(90deg, ${overallStrength.color}, ${overallStrength.color}99)`;
-        }
-
-        function updateFGSMASignal(data) {
-            const dateEl = document.getElementById('fgsma-date');
-            const signalEl = document.getElementById('fgsma-signal');
-            const cardEl = document.getElementById('fgsma-card');
-            const fgSignalEl = document.getElementById('fg-signal');
-            const smaSignalEl = document.getElementById('sma-signal');
-
-            // Update date
-            const now = new Date();
-            const dateStr = now.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
-            dateEl.textContent = dateStr;
-
-            if (data.current_overall_signal) {
-                // Overall signal
-                signalEl.textContent = data.current_overall_signal.text;
-
-                // Update card class based on signal
-                const signalClass = data.current_overall_signal.text.toLowerCase().replace(' ', '-');
-                cardEl.className = 'fgsma-card ' + signalClass;
-
-                // Subsignals
-                fgSignalEl.textContent = data.current_fg_signal.text;
-                smaSignalEl.textContent = data.current_sma_signal.text;
-
-                // Update strength bars
-                updateSignalStrengthBars(data);
-            } else {
-                signalEl.textContent = '--';
-                cardEl.className = 'fgsma-card hold';
-                fgSignalEl.textContent = '--';
-                smaSignalEl.textContent = '--';
-            }
-        }
-
-        // Toggle handlers removed - elements no longer exist
-        // document.getElementById('toggle-price').onchange = function() {
-        //     saveToggleState('toggle-price', this.checked);
-        //     renderChart(chartData);
-        // };
-        // document.getElementById('toggle-sma').onchange = function() {
-        //     saveToggleState('toggle-sma', this.checked);
-        //     renderChart(chartData);
-        // };
-        // document.getElementById('toggle-fg').onchange = function() {
-        //     saveToggleState('toggle-fg', this.checked);
-        //     renderChart(chartData);
-        // };
-        // document.getElementById('toggle-log').onchange = function() {
-        //     saveToggleState('toggle-log', this.checked);
-        //     if (currentChartView === 'price') {
-        //         renderChart(chartData);
-        //     } else if (currentChartView === 'signals') {
-        //         renderSignalChart(chartData);
-        //     }
-        // };
-
-        // loadToggleStates(); // Removed - toggles no longer exist
+        // Load data on page load
         loadData();
-        // Refresh every 1 second for real-time price updates
-        setInterval(loadData, 1000);
 
-        // Handle window resize for responsive charts
-        let resizeTimer;
-        window.addEventListener('resize', function() {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(function() {
-                if (chartData) {
-                    if (currentChartView === 'price') {
-                        Plotly.Plots.resize('chart');
-                    } else if (currentChartView === 'signals') {
-                        Plotly.Plots.resize('signal-chart');
-                    }
-                }
-            }, 250);
-        });
+        // Auto-refresh every 5 minutes
+        setInterval(loadData, 300000);
 
-        // Handle orientation change on mobile
-        window.addEventListener('orientationchange', function() {
-            setTimeout(function() {
-                if (chartData) {
-                    if (currentChartView === 'price') {
-                        Plotly.Plots.resize('chart');
-                    } else if (currentChartView === 'signals') {
-                        Plotly.Plots.resize('signal-chart');
-                    }
-                }
-            }, 300);
-        });
-
-        // Unregister all service workers and clear caches
+        // Register service worker for PWA
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for(let registration of registrations) {
-                    registration.unregister();
-                    console.log('[PWA] Service Worker unregistered');
-                }
-            });
-            // Clear all caches
-            caches.keys().then(function(cacheNames) {
-                return Promise.all(
-                    cacheNames.map(function(cacheName) {
-                        console.log('[PWA] Deleting cache:', cacheName);
-                        return caches.delete(cacheName);
-                    })
-                );
+            navigator.serviceWorker.register('/service-worker.js').catch(err => {
+                console.log('Service worker registration failed:', err);
             });
         }
-
-        // PWA install prompt
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            console.log('[PWA] Install prompt available');
-            e.preventDefault();
-            deferredPrompt = e;
-            // You could show a custom install button here if desired
-        });
-
-        window.addEventListener('appinstalled', () => {
-            console.log('[PWA] App installed successfully');
-            deferredPrompt = null;
-        });
     </script>
 </body>
 </html>
     '''
     return render_template_string(html)
 
-def open_browser():
-    time.sleep(2)
-    webbrowser.open('http://localhost:5000')
+# ============================================================================
+# MAIN
+# ============================================================================
 
-def main():
-    load_fgsma_parameters()
+if __name__ == '__main__':
+    print("\n" + "="*70)
+    print("   Bitcoin 4-Indicator Optimized Dashboard")
+    print("="*70)
 
-    # Get port from environment variable (for cloud deployment) or default to 5000
+    load_config()
+
+    if CONFIG is None:
+        print("\n[ERROR] Failed to load configuration. Please check final_5stage_config.json exists.")
+        sys.exit(1)
+
+    print("\n[INFO] Starting Flask server...")
     port = int(os.environ.get('PORT', 5000))
-    host = os.environ.get('HOST', '0.0.0.0')
 
-    print("="*70)
-    print("BITCOIN FGSMA MODEL DASHBOARD")
-    print("="*70)
-    print(f"\nServer: http://{host}:{port}")
-    print(f"API: http://{host}:{port}/api/data")
-    print("\nPress Ctrl+C to stop")
-    print("="*70)
+    # Open browser after a short delay
+    def open_browser():
+        time.sleep(1.5)
+        webbrowser.open(f'http://127.0.0.1:{port}')
 
-    # Only open browser if running locally
-    if host == 'localhost' or host == '127.0.0.1':
-        threading.Thread(target=open_browser, daemon=True).start()
+    threading.Thread(target=open_browser, daemon=True).start()
 
-    app.run(host=host, port=port, debug=False, threaded=True)
+    print(f"\n[OK] Dashboard running at: http://127.0.0.1:{port}")
+    print("[INFO] Press Ctrl+C to stop\n")
 
-if __name__ == "__main__":
-    main()
+    app.run(host='0.0.0.0', port=port, debug=False)
