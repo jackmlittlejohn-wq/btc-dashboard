@@ -1314,8 +1314,11 @@ def index():
             event.target.classList.add('active');
 
             if (chartData) {
-                if (currentChartView === 'price') renderChart(chartData);
-                else if (currentChartView === 'signals') renderHistoricalSignals(chartData);
+                if (currentChartView === 'price') {
+                    renderChart(chartData);
+                } else if (currentChartView === 'signals') {
+                    renderHistoricalSignals(chartData);
+                }
             }
         }
 
@@ -1603,39 +1606,61 @@ def index():
                 const cutoffDate = getCutoffDate();
                 let filtered = data.historical_signals;
                 let filteredDaily = data.daily;
+                let filteredBuySignals = {dates: data.buy_signals.dates, prices: data.buy_signals.prices};
+                let filteredSellSignals = {dates: data.sell_signals.dates, prices: data.sell_signals.prices};
+
                 if (cutoffDate) {
                     filtered = data.historical_signals.filter(d => new Date(d.time) >= cutoffDate);
                     filteredDaily = data.daily.filter(d => new Date(d.time) >= cutoffDate);
+
+                    // Filter buy/sell signals based on time range
+                    const buyIndices = [];
+                    const sellIndices = [];
+                    for (let i = 0; i < data.buy_signals.dates.length; i++) {
+                        if (new Date(data.buy_signals.dates[i]) >= cutoffDate) {
+                            buyIndices.push(i);
+                        }
+                    }
+                    for (let i = 0; i < data.sell_signals.dates.length; i++) {
+                        if (new Date(data.sell_signals.dates[i]) >= cutoffDate) {
+                            sellIndices.push(i);
+                        }
+                    }
+                    filteredBuySignals = {
+                        dates: buyIndices.map(i => data.buy_signals.dates[i]),
+                        prices: buyIndices.map(i => data.buy_signals.prices[i])
+                    };
+                    filteredSellSignals = {
+                        dates: sellIndices.map(i => data.sell_signals.dates[i]),
+                        prices: sellIndices.map(i => data.sell_signals.prices[i])
+                    };
                 }
 
                 const times = filtered.map(d => d.time);
 
                 // === MAIN CHART: Price with Buy/Sell Signals ===
                 const priceTrace = {
-                    type: 'candlestick',
+                    type: 'scatter',
+                    mode: 'lines',
                     x: filteredDaily.map(d => d.time),
-                    open: filteredDaily.map(d => d.open),
-                    high: filteredDaily.map(d => d.high),
-                    low: filteredDaily.map(d => d.low),
-                    close: filteredDaily.map(d => d.close),
+                    y: filteredDaily.map(d => d.close),
                     name: 'BTC Price',
-                    increasing: {line: {color: '#10b981', width: 1}},
-                    decreasing: {line: {color: '#ef4444', width: 1}},
+                    line: {color: '#000000', width: 1.5},
                     yaxis: 'y',
                     xaxis: 'x',
                     showlegend: true
                 };
 
-                // Buy signals (green triangles up)
+                // Buy signals (green triangles up) - SMALLER
                 const buyTrace = {
                     type: 'scatter',
                     mode: 'markers',
-                    x: data.buy_signals.dates,
-                    y: data.buy_signals.prices,
+                    x: filteredBuySignals.dates,
+                    y: filteredBuySignals.prices,
                     name: 'Buy Signal',
                     marker: {
                         symbol: 'triangle-up',
-                        size: 12,
+                        size: 8,
                         color: '#10b981',
                         line: {color: '#065f46', width: 1}
                     },
@@ -1644,16 +1669,16 @@ def index():
                     showlegend: true
                 };
 
-                // Sell signals (red triangles down)
+                // Sell signals (red triangles down) - SMALLER
                 const sellTrace = {
                     type: 'scatter',
                     mode: 'markers',
-                    x: data.sell_signals.dates,
-                    y: data.sell_signals.prices,
+                    x: filteredSellSignals.dates,
+                    y: filteredSellSignals.prices,
                     name: 'Sell Signal',
                     marker: {
                         symbol: 'triangle-down',
-                        size: 12,
+                        size: 8,
                         color: '#ef4444',
                         line: {color: '#991b1b', width: 1}
                     },
@@ -1856,7 +1881,7 @@ def index():
                         fixedrange: true,
                         tickmode: 'array',
                         tickvals: [-1, 1],
-                        ticktext: ['🔴 BEAR', '🟢 BULL'],
+                        ticktext: ['BEAR', 'BULL'],
                         zeroline: true,
                         zerolinecolor: '#d1d5db',
                         zerolinewidth: 2
