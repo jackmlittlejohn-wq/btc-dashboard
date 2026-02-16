@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    <title>BTC Strategy Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            padding: 1rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .price {
+            font-size: 3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .action-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .action {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+        }
+
+        .action.buy { color: #10b981; }
+        .action.sell { color: #ef4444; }
+        .action.hold { color: #f59e0b; }
+
+        .combined-score {
+            font-size: 1.5rem;
+            color: #888;
+        }
+
+        .indicators {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .indicator {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem 1rem;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .indicator:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .indicator-name {
+            font-size: 0.85rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+        }
+
+        .indicator-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .signal-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .signal-buy { background: #10b981; color: #000; }
+        .signal-sell { background: #ef4444; color: #fff; }
+        .signal-neutral { background: #6b7280; color: #fff; }
+
+        .config {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .config-title {
+            font-size: 0.9rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+        }
+
+        .config-item {
+            font-size: 0.85rem;
+        }
+
+        .config-label {
+            color: #888;
+            margin-bottom: 0.25rem;
+        }
+
+        .config-value {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .footer {
+            text-align: center;
+            color: #666;
+            font-size: 0.8rem;
+            margin-top: 2rem;
+            padding: 1rem;
+        }
+
+        @media (max-width: 600px) {
+            .price {
+                font-size: 2.5rem;
+            }
+
+            .action {
+                font-size: 2rem;
+            }
+
+            .indicators {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .action-card {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="price">$68,433</div>
+            <div class="timestamp">Last updated: 2026-02-16 00:00 UTC</div>
+        </div>
+
+        <div class="action-card">
+            <div class="action hold">
+                HOLD
+            </div>
+            <div class="combined-score">Combined Signal: 1.17</div>
+        </div>
+
+        <div class="indicators">
+            <div class="indicator">
+                <div class="indicator-name">200W SMA</div>
+                <div class="indicator-value">1.181</div>
+                <span class="signal-badge signal-neutral">
+                    NEUTRAL
+                </span>
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
+                    Weight: 1.25x → 0.00
+                </div>
+            </div>
+
+            <div class="indicator">
+                <div class="indicator-name">50W MA (BEAR)</div>
+                <div class="indicator-value">0.690</div>
+                <span class="signal-badge signal-neutral">
+                    NEUTRAL
+                </span>
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
+                    Weight: 2.60x → 0.00
+                </div>
+            </div>
+
+            <div class="indicator">
+                <div class="indicator-name">Fear & Greed</div>
+                <div class="indicator-value">15</div>
+                <span class="signal-badge signal-buy">
+                    BUY
+                </span>
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
+                    Weight: 1.17x → 1.17
+                </div>
+            </div>
+
+            <div class="indicator">
+                <div class="indicator-name">RSI</div>
+                <div class="indicator-value">30.7</div>
+                <span class="signal-badge signal-neutral">
+                    NEUTRAL
+                </span>
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
+                    Weight: 2.39x → 0.00
+                </div>
+            </div>
+        </div>
+
+        <div class="config">
+            <div class="config-title">Strategy Configuration</div>
+            <div class="config-grid">
+                <div class="config-item">
+                    <div class="config-label">200W Thresholds</div>
+                    <div class="config-value">Buy: 1.64 | Sell: 3.39</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">50W Bull</div>
+                    <div class="config-value">Ext: 2.28 | Supp: 1.26</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">50W Bear</div>
+                    <div class="config-value">Res: 0.70 | Deep: 0.65</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">F&G EMA</div>
+                    <div class="config-value">25d | Buy: <20</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">RSI</div>
+                    <div class="config-value">25d | Buy: <26</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">Performance</div>
+                    <div class="config-value">4,766% Return</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            5-Stage Optimized Strategy | Updated: 2026-02-15 23:30
+        </div>
+    </div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+    </script>
+</body>
+</html>

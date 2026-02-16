@@ -1,18 +1,17 @@
-// SELF-DESTRUCT: Clear all caches and unregister
+const CACHE_NAME = 'btc-strategy-v1';
+const urlsToCache = [
+  '/btc_optimized_dashboard.html',
+  '/manifest.json'
+];
+
 self.addEventListener('install', event => {
-  console.log('[Service Worker] Self-destructing...');
+  console.log('[Service Worker] Installing...');
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          console.log('[Service Worker] Deleting cache:', cacheName);
-          return caches.delete(cacheName);
-        })
-      );
-    }).then(() => {
-      console.log('[Service Worker] All caches cleared');
-      return self.registration.unregister();
-    })
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        console.log('[Service Worker] Caching files');
+        return cache.addAll(urlsToCache);
+      })
   );
   self.skipWaiting();
 });
