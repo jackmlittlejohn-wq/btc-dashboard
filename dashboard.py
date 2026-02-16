@@ -38,17 +38,18 @@ def load_config():
     global CONFIG
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(script_dir, 'final_5stage_config.json')
+        json_path = os.path.join(script_dir, 'constrained_5stage_config.json')
 
         print(f"[INFO] Looking for config at: {json_path}")
 
         if os.path.exists(json_path):
             with open(json_path, 'r') as f:
                 CONFIG = json.load(f)
-            print("[INFO] ✓ Loaded Pocojuan Model configuration")
+            print("[INFO] ✓ Loaded Constrained Pocojuan Model configuration")
             print(f"[INFO] Total Return: {CONFIG.get('total_return', 0):.2f}%")
+            print(f"[INFO] Balanced Weights: 200W={CONFIG['weights']['w_200w']:.2f}, 50W={CONFIG['weights']['w_50w']:.2f}, F&G={CONFIG['weights']['w_fg']:.2f}, RSI={CONFIG['weights']['w_rsi']:.2f}")
         else:
-            print(f"[ERROR] final_5stage_config.json not found at {json_path}")
+            print(f"[ERROR] constrained_5stage_config.json not found at {json_path}")
             CONFIG = None
     except Exception as e:
         print(f"[ERROR] Loading configuration: {e}")
@@ -2067,7 +2068,7 @@ if __name__ == '__main__':
     load_config()
 
     if CONFIG is None:
-        print("\n[ERROR] Failed to load configuration. Please check final_5stage_config.json exists.")
+        print("\n[ERROR] Failed to load configuration. Please check constrained_5stage_config.json exists.")
         sys.exit(1)
 
     print("\n[INFO] Starting Flask server...")
