@@ -89,10 +89,11 @@ def get_current_signals(latest_row, config, start_year):
 
     years = latest_row['time'].year - start_year
 
-    # 200W SMA
-    decay = p['sma_200w']['decay'] ** years
-    adj_buy = p['sma_200w']['buy'] * decay
-    adj_sell = p['sma_200w']['sell'] * decay
+    # 200W SMA - DUAL DECAY
+    decay_buy = p['sma_200w'].get('decay_buy', p['sma_200w']['decay']) ** years
+    decay_sell = p['sma_200w'].get('decay_sell', p['sma_200w']['decay']) ** years
+    adj_buy = p['sma_200w']['buy'] * decay_buy
+    adj_sell = p['sma_200w']['sell'] * decay_sell
     sig_sma = 1 if latest_row['sma_ratio'] < adj_buy else (-1 if latest_row['sma_ratio'] > adj_sell else 0)
 
     # 50W MA
@@ -378,6 +379,10 @@ def generate_html(df, config, signals):
                     <div class="config-value">Buy: {p['sma_200w']['buy']:.2f} | Sell: {p['sma_200w']['sell']:.2f}</div>
                 </div>
                 <div class="config-item">
+                    <div class="config-label">200W Decay Rates</div>
+                    <div class="config-value">Buy: {p['sma_200w'].get('decay_buy', p['sma_200w']['decay']):.4f} | Sell: {p['sma_200w'].get('decay_sell', p['sma_200w']['decay']):.4f}</div>
+                </div>
+                <div class="config-item">
                     <div class="config-label">50W Bull</div>
                     <div class="config-value">Ext: {p['ma_50w']['bull_ext']:.2f} | Supp: {p['ma_50w']['bull_supp']:.2f}</div>
                 </div>
@@ -395,13 +400,13 @@ def generate_html(df, config, signals):
                 </div>
                 <div class="config-item">
                     <div class="config-label">Performance</div>
-                    <div class="config-value">4,766% Return</div>
+                    <div class="config-value">{((config.get('final_value', 49545) - 1000) / 10):.0f}% Return</div>
                 </div>
             </div>
         </div>
 
         <div class="footer">
-            5-Stage Optimized Strategy | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+            5-Stage Dual Decay Optimized Strategy | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
         </div>
     </div>
 
