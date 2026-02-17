@@ -355,12 +355,6 @@ def prepare_all_data():
     if daily_df is None:
         return None
 
-    # Calculate F&G EMA
-    if CONFIG is not None:
-        fg_period = CONFIG['parameters']['fg']['ema_period']
-        fg_df = fg_df.sort_values('time').copy()
-        fg_df['fg_ema'] = fg_df['value'].ewm(span=fg_period, adjust=False).mean()
-
     # Calculate RSI
     if CONFIG is not None:
         rsi_period = CONFIG['parameters']['rsi']['period']
@@ -371,18 +365,30 @@ def prepare_all_data():
     if ma_df is None:
         return None
 
+    # CRITICAL FIX: Backfill F&G data BEFORE calculating EMA
+    # F&G API only has data from Feb 2018+, need to fill pre-2018 dates with neutral value (50)
+    if CONFIG is not None:
+        fg_period = CONFIG['parameters']['fg']['ema_period']
+
+        # Create complete date range matching daily_df
+        complete_dates = pd.DataFrame({'time': daily_df['time']})
+
+        # Merge F&G data with complete dates, filling missing with neutral value 50
+        fg_df_sorted = fg_df.sort_values('time').copy()
+        fg_complete = complete_dates.merge(fg_df_sorted[['time', 'value']], on='time', how='left')
+        fg_complete['value'] = fg_complete['value'].fillna(50)
+
+        # NOW calculate EMA on the COMPLETE series (with backfilled values)
+        fg_complete['fg_ema'] = fg_complete['value'].ewm(span=fg_period, adjust=False).mean()
+
+        # Use the complete F&G dataframe for merging
+        fg_df = fg_complete
+
     # Merge all data
     daily_df = daily_df.set_index('time')
     daily_df = daily_df.merge(ma_df[['ma_50w', 'regime', 'ma50w_ratio']], left_index=True, right_index=True, how='left')
     daily_df = daily_df.merge(fg_df[['time', 'value', 'fg_ema']].set_index('time'), left_index=True, right_index=True, how='left')
     daily_df = daily_df.rename(columns={'value': 'fg_index'})
-
-    # Backfill F&G data for early years (before F&G API existed) with neutral value (50)
-    # F&G API typically only has data from Feb 2018 onwards
-    if 'fg_index' in daily_df.columns:
-        daily_df['fg_index'] = daily_df['fg_index'].fillna(50)
-    if 'fg_ema' in daily_df.columns:
-        daily_df['fg_ema'] = daily_df['fg_ema'].fillna(50)
 
     # Forward fill missing values
     for col in ['sma_200w', 'sma_ratio', 'ma_50w', 'regime', 'ma50w_ratio', 'fg_index', 'fg_ema', 'rsi']:
@@ -2073,19 +2079,19 @@ def index():
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
                                     <div style="background: white; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6;">
                                         <div style="font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Total US Debt</div>
-                                        <div id="debt-counter" style="font-size: 20px; font-weight: 700; color: #dc3545; font-variant-numeric: tabular-nums;">$36,200,000,000,000</div>
-                                        <div style="font-size: 10px; color: #868e96; margin-top: 4px;">+$1M every 30 seconds</div>
+                                        <div id="debt-counter" style="font-size: 20px; font-weight: 700; color: #dc3545; font-variant-numeric: tabular-nums;">Loading...</div>
+                                        <div id="debt-subtitle" style="font-size: 10px; color: #868e96; margin-top: 4px;">Fetching from Treasury API...</div>
                                     </div>
 
                                     <div style="background: white; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6;">
-                                        <div style="font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Interest Accrued Today</div>
-                                        <div id="interest-counter" style="font-size: 20px; font-weight: 700; color: #e67700; font-variant-numeric: tabular-nums;">$0</div>
-                                        <div style="font-size: 10px; color: #868e96; margin-top: 4px;">~$1B per day</div>
+                                        <div style="font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">2026 Deficit (YTD)</div>
+                                        <div id="deficit-counter" style="font-size: 20px; font-weight: 700; color: #e67700; font-variant-numeric: tabular-nums;">Loading...</div>
+                                        <div id="deficit-subtitle" style="font-size: 10px; color: #868e96; margin-top: 4px;">Year-to-date change</div>
                                     </div>
                                 </div>
 
-                                <div style="font-size: 11px; color: #868e96; text-align: center;">
-                                    Live counters based on current US debt trajectory
+                                <div id="debt-updated" style="font-size: 11px; color: #868e96; text-align: center;">
+                                    Real-time data from US Treasury API
                                 </div>
                             </div>
                         </div>
@@ -2170,75 +2176,133 @@ def index():
             initializeDebtCounters();
         }
 
-        // National Debt Counter Logic
+        // National Debt Counter Logic - API Powered
         let debtCounterInterval = null;
-        let interestCounterInterval = null;
+        let debtApiData = null;
+
+        async function fetchDebtData() {
+            try {
+                // Fetch latest debt data
+                const response = await fetch('https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?sort=-record_date&page[size]=1');
+                if (!response.ok) throw new Error('API request failed');
+                const data = await response.json();
+
+                if (data.data && data.data.length > 0) {
+                    const latestDebt = parseFloat(data.data[0].tot_pub_debt_out_amt);
+                    const debtDate = data.data[0].record_date;
+
+                    // Fetch year-start debt for deficit calculation
+                    const yearStartResponse = await fetch('https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?filter=record_date:gte:2026-01-01,record_date:lte:2026-01-05&sort=record_date');
+                    const yearStartData = await yearStartResponse.json();
+                    const yearStartDebt = yearStartData.data && yearStartData.data.length > 0
+                        ? parseFloat(yearStartData.data[0].tot_pub_debt_out_amt)
+                        : latestDebt;
+
+                    // Calculate daily increase rate from historical data (estimate $8-10B/day)
+                    const daysSinceYearStart = Math.max(1, Math.floor((new Date(debtDate) - new Date('2026-01-02')) / (1000 * 60 * 60 * 24)));
+                    const totalIncrease = latestDebt - yearStartDebt;
+                    const dailyIncreaseRate = daysSinceYearStart > 0 ? totalIncrease / daysSinceYearStart : 8.5e9;
+
+                    debtApiData = {
+                        latestDebt: latestDebt,
+                        yearStartDebt: yearStartDebt,
+                        debtDate: debtDate,
+                        dailyIncreaseRate: dailyIncreaseRate,
+                        fetchTime: Date.now()
+                    };
+
+                    updateDebtDisplayFromApi();
+                    updateDebtUpdatedTime();
+                }
+            } catch (error) {
+                console.error('Failed to fetch debt data:', error);
+                // Fallback to estimated values
+                debtApiData = {
+                    latestDebt: 38.65e12,
+                    yearStartDebt: 38.42e12,
+                    debtDate: new Date().toISOString().split('T')[0],
+                    dailyIncreaseRate: 9e9,
+                    fetchTime: Date.now(),
+                    isEstimate: true
+                };
+                updateDebtDisplayFromApi();
+                document.getElementById('debt-updated').textContent = 'Using estimated values (API unavailable)';
+            }
+        }
 
         function initializeDebtCounters() {
             // Clear any existing intervals
             if (debtCounterInterval) clearInterval(debtCounterInterval);
-            if (interestCounterInterval) clearInterval(interestCounterInterval);
 
-            // US National Debt parameters (as of Feb 2026)
-            const initialDebt = 36.2e12; // $36.2 trillion
-            const debtIncreasePerSecond = 1e6 / 30; // $1M every 30 seconds = ~$33,333 per second
-            const interestPerDay = 1e9; // ~$1B per day
-            const interestPerSecond = interestPerDay / 86400; // Interest per second
+            // Fetch initial data
+            fetchDebtData();
 
-            const startTime = Date.now();
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
-            const secondsSinceStartOfDay = (Date.now() - startOfDay.getTime()) / 1000;
+            // Update display every 100ms for smooth ticking
+            debtCounterInterval = setInterval(updateDebtDisplayFromApi, 100);
 
-            function formatDebt(value) {
-                if (value >= 1e12) {
-                    return '$' + (value / 1e12).toFixed(3) + 'T';
-                } else if (value >= 1e9) {
-                    return '$' + (value / 1e9).toFixed(2) + 'B';
-                } else if (value >= 1e6) {
-                    return '$' + (value / 1e6).toFixed(2) + 'M';
-                }
-                return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            // Refresh from API every 5 minutes
+            setInterval(fetchDebtData, 300000);
+        }
+
+        function updateDebtDisplayFromApi() {
+            if (!debtApiData) return;
+
+            const debtElement = document.getElementById('debt-counter');
+            const deficitElement = document.getElementById('deficit-counter');
+            const debtSubtitle = document.getElementById('debt-subtitle');
+            const deficitSubtitle = document.getElementById('deficit-subtitle');
+
+            if (!debtElement || !deficitElement) return;
+
+            // Calculate elapsed time since last API fetch (in days)
+            const elapsedMs = Date.now() - debtApiData.fetchTime;
+            const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
+
+            // Calculate current debt with linear interpolation
+            const currentDebt = debtApiData.latestDebt + (debtApiData.dailyIncreaseRate * elapsedDays);
+            const currentDeficit = currentDebt - debtApiData.yearStartDebt;
+
+            // Format and display
+            debtElement.textContent = formatDebt(currentDebt);
+            deficitElement.textContent = formatDebt(currentDeficit);
+
+            // Update subtitles with rate information
+            const ratePerSecond = debtApiData.dailyIncreaseRate / 86400;
+            if (ratePerSecond >= 1e6) {
+                debtSubtitle.textContent = '+$' + (ratePerSecond / 1e6).toFixed(1) + 'M per second';
+            } else if (ratePerSecond >= 1e3) {
+                debtSubtitle.textContent = '+$' + (ratePerSecond / 1e3).toFixed(0) + 'K per second';
             }
 
-            function formatInterest(value) {
-                if (value >= 1e9) {
-                    return '$' + (value / 1e9).toFixed(3) + 'B';
-                } else if (value >= 1e6) {
-                    return '$' + (value / 1e6).toFixed(1) + 'M';
-                } else if (value >= 1e3) {
-                    return '$' + (value / 1e3).toFixed(0) + 'K';
-                }
-                return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            deficitSubtitle.textContent = 'Since Jan 2, 2026';
+        }
+
+        function updateDebtUpdatedTime() {
+            if (!debtApiData) return;
+            const updateElement = document.getElementById('debt-updated');
+            if (!updateElement) return;
+
+            const debtDate = new Date(debtApiData.debtDate);
+            const dateStr = debtDate.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'});
+
+            if (debtApiData.isEstimate) {
+                updateElement.textContent = 'Using estimated values (API unavailable)';
+            } else {
+                updateElement.textContent = `Real-time data from US Treasury (as of ${dateStr}, updated ${timeStr})`;
             }
+        }
 
-            function updateDebtCounter() {
-                const debtElement = document.getElementById('debt-counter');
-                if (!debtElement) return;
-
-                const elapsedSeconds = (Date.now() - startTime) / 1000;
-                const currentDebt = initialDebt + (debtIncreasePerSecond * elapsedSeconds);
-                debtElement.textContent = formatDebt(currentDebt);
+        function formatDebt(value) {
+            if (value >= 1e12) {
+                return '$' + (value / 1e12).toFixed(3) + 'T';
+            } else if (value >= 1e9) {
+                return '$' + (value / 1e9).toFixed(2) + 'B';
+            } else if (value >= 1e6) {
+                return '$' + (value / 1e6).toFixed(2) + 'M';
             }
-
-            function updateInterestCounter() {
-                const interestElement = document.getElementById('interest-counter');
-                if (!interestElement) return;
-
-                const currentSecondsSinceStartOfDay = secondsSinceStartOfDay + ((Date.now() - startTime) / 1000);
-                const currentInterest = interestPerSecond * currentSecondsSinceStartOfDay;
-                interestElement.textContent = formatInterest(currentInterest);
-            }
-
-            // Initial update
-            updateDebtCounter();
-            updateInterestCounter();
-
-            // Update debt counter every 100ms for smooth ticking
-            debtCounterInterval = setInterval(updateDebtCounter, 100);
-
-            // Update interest counter every 1 second
-            interestCounterInterval = setInterval(updateInterestCounter, 1000);
+            return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
         }
 
         function updateDataPanel(data) {
