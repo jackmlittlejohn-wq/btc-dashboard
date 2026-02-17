@@ -247,10 +247,11 @@ def get_signals(latest_row, config):
 
         years = latest_row['time'].year - START_YEAR
 
-        # 1. 200W SMA Signal
-        decay = p['sma_200w']['decay'] ** years
-        adj_buy = p['sma_200w']['buy'] * decay
-        adj_sell = p['sma_200w']['sell'] * decay
+        # 1. 200W SMA Signal (with dual decay support)
+        decay_buy = p['sma_200w'].get('decay_buy', p['sma_200w'].get('decay', 1.0)) ** years
+        decay_sell = p['sma_200w'].get('decay_sell', p['sma_200w'].get('decay', 1.0)) ** years
+        adj_buy = p['sma_200w']['buy'] * decay_buy
+        adj_sell = p['sma_200w']['sell'] * decay_sell
         sig_200w = 1 if latest_row['sma_ratio'] < adj_buy else (-1 if latest_row['sma_ratio'] > adj_sell else 0)
 
         # 2. 50W MA Signal (regime-dependent)
