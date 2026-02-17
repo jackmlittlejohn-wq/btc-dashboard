@@ -449,6 +449,7 @@ def calculate_dca_comparison(data, config):
         df = df[df['time'].dt.year >= 2017].reset_index(drop=True)
 
         if len(df) == 0:
+            print("[ERROR] No data for 2017+")
             return None
 
         # Calculate DCA strategy: $100 per week
@@ -459,52 +460,71 @@ def calculate_dca_comparison(data, config):
         # DCA simulation
         dca_btc = 0
         dca_invested = 0
-        week_counter = 0
 
         for idx, row in df.iterrows():
             if idx % 7 == 0 and dca_invested < total_dca_deployed:  # Weekly investment
                 dca_btc += weekly_investment / row['close']
                 dca_invested += weekly_investment
-                week_counter += 1
 
         dca_final_value = dca_btc * df.iloc[-1]['close']
         dca_return = ((dca_final_value - dca_invested) / dca_invested) * 100
 
         # Pocojuan Model: Start with SAME total amount as DCA will deploy
-        model_cash = total_dca_deployed
-        model_btc = 0
+        model_cash = float(total_dca_deployed)
+        model_btc = 0.0
         trades = 0
+        START_YEAR = 2017
+
+        p = config['parameters']
+        w = config['weights']
 
         for idx, row in df.iterrows():
             # Skip rows with missing data
-            if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
+            if pd.isna(row.get('sma_ratio')) or pd.isna(row.get('ma50w_ratio')) or pd.isna(row.get('fg_ema')) or pd.isna(row.get('rsi')):
                 continue
 
-            signals = get_signals(row, config)
-            if not signals:
-                continue
+            years = row['time'].year - START_YEAR
 
-            # Execute trades based on signals
-            if signals['action_class'] == 'buy' and model_cash > 0:
-                # Buy with 1% of available cash
+            # Calculate signals directly (same as get_signals)
+            # 200W SMA
+            decay_buy = p['sma_200w'].get('decay_buy', p['sma_200w'].get('decay', 1.0)) ** years
+            decay_sell = p['sma_200w'].get('decay_sell', p['sma_200w'].get('decay', 1.0)) ** years
+            adj_buy = p['sma_200w']['buy'] * decay_buy
+            adj_sell = p['sma_200w']['sell'] * decay_sell
+            sig_200w = 1 if row['sma_ratio'] < adj_buy else (-1 if row['sma_ratio'] > adj_sell else 0)
+
+            # 50W MA
+            if row['regime'] == 'bull':
+                sig_50w = -1 if row['ma50w_ratio'] > p['ma_50w']['bull_ext'] else (1 if row['ma50w_ratio'] < p['ma_50w']['bull_supp'] else 0)
+            else:
+                sig_50w = -1 if row['ma50w_ratio'] > p['ma_50w']['bear_res'] else (1 if row['ma50w_ratio'] < p['ma_50w']['bear_deep'] else 0)
+
+            # F&G
+            sig_fg = 1 if row['fg_ema'] < p['fg']['buy'] else (-1 if row['fg_ema'] > p['fg']['sell'] else 0)
+
+            # RSI
+            sig_rsi = 1 if row['rsi'] < p['rsi']['buy'] else (-1 if row['rsi'] > p['rsi']['sell'] else 0)
+
+            # Combined signal
+            combined = (sig_200w * w['w_200w'] + sig_50w * w['w_50w'] + sig_fg * w['w_fg'] + sig_rsi * w['w_rsi'])
+
+            # Execute trades (threshold = 2.0 for 4 indicators)
+            if combined >= 2.0 and model_cash > 0:
                 buy_amount = model_cash * 0.01
-                btc_bought = buy_amount / row['close']
-                model_btc += btc_bought
+                model_btc += buy_amount / row['close']
                 model_cash -= buy_amount
                 trades += 1
-            elif signals['action_class'] == 'sell' and model_btc > 0:
-                # Sell 1% of BTC holdings
+            elif combined <= -2.0 and model_btc > 0:
                 btc_to_sell = model_btc * 0.01
-                cash_from_sale = btc_to_sell * row['close']
+                model_cash += btc_to_sell * row['close']
                 model_btc -= btc_to_sell
-                model_cash += cash_from_sale
                 trades += 1
 
         model_final_value = model_cash + (model_btc * df.iloc[-1]['close'])
         model_return = ((model_final_value - total_dca_deployed) / total_dca_deployed) * 100
         outperformance = model_return - dca_return
 
-        return {
+        result = {
             'model_final_value': round(model_final_value, 2),
             'model_return': round(model_return, 2),
             'dca_final_value': round(dca_final_value, 2),
@@ -515,6 +535,9 @@ def calculate_dca_comparison(data, config):
             'start_date': df.iloc[0]['time'].strftime('%Y-%m-%d'),
             'end_date': df.iloc[-1]['time'].strftime('%Y-%m-%d')
         }
+
+        print(f"[INFO] DCA comparison calculated: Model ${model_final_value:,.0f} vs DCA ${dca_final_value:,.0f}")
+        return result
     except Exception as e:
         print(f"[ERROR] DCA comparison calculation: {e}")
         import traceback
