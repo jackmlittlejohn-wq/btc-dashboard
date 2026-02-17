@@ -459,7 +459,7 @@ def calculate_dca_comparison(data, config):
     try:
         # Filter data from Jan 2021 onwards
         df = data['daily'].copy()
-        df = df[df['time'] >= '2021-01-01'].reset_index(drop=True)
+        df = df[df['time'] >= pd.Timestamp('2021-01-01')].reset_index(drop=True)
 
         if len(df) == 0:
             print("[ERROR] No data for 2021+")
@@ -630,7 +630,7 @@ def api_data():
 
     for idx, (_, row) in enumerate(data['daily'].iterrows()):
         # Only include signals from 2021+ onwards
-        if row['time'] >= '2021-01-01':
+        if row['time'] >= pd.Timestamp('2021-01-01'):
             if historical_signals[idx] and historical_signals[idx]['action_class'] == 'buy':
                 buy_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
                 buy_signals['prices'].append(float(row['close']))
@@ -645,7 +645,7 @@ def api_data():
         print(f"[INFO] First sell signal: {sell_signals['dates'][0]}")
 
     # Prepare daily data for charts (filter to 2021+ only)
-    daily_filtered = data['daily'][data['daily']['time'] >= '2021-01-01'].reset_index(drop=True)
+    daily_filtered = data['daily'][data['daily']['time'] >= pd.Timestamp('2021-01-01')].reset_index(drop=True)
 
     daily_data = []
     for idx, row in daily_filtered.iterrows():
@@ -667,7 +667,7 @@ def api_data():
     # Prepare historical signal data for visualization (filter to 2021+ only)
     historical_signal_data = []
     for idx, sig in enumerate(historical_signals):
-        if sig and data['daily'].iloc[idx]['time'] >= '2021-01-01':
+        if sig and data['daily'].iloc[idx]['time'] >= pd.Timestamp('2021-01-01'):
             historical_signal_data.append({
                 'time': data['daily'].iloc[idx]['time'].strftime('%Y-%m-%d'),
                 'sig_200w': sig['200w']['signal'],
