@@ -441,82 +441,82 @@ def calculate_performance_stats(data, config):
         print(f"[ERROR] Performance calculation: {e}")
         return {'total_trades': 0, 'win_rate': 0, 'total_return': 0}
 
-def calculate_portfolio_growth(data, config):
-    """Calculate portfolio growth performance from 2018 onwards"""
+def calculate_dca_comparison(data, config):
+    """Calculate Pocojuan Model vs DCA - apples to apples comparison from 2017"""
     try:
-        # Filter data from 2018 onwards
+        # Filter data from 2017 onwards
         df = data['daily'].copy()
-        df = df[df['time'].dt.year >= 2018].reset_index(drop=True)
+        df = df[df['time'].dt.year >= 2017].reset_index(drop=True)
 
         if len(df) == 0:
             return None
 
-        # Initialize portfolio
-        starting_balance = 1000
-        cash = starting_balance
-        btc_holdings = 0
+        # Calculate DCA strategy: $100 per week
+        weekly_investment = 100
+        num_weeks = len(df) // 7
+        total_dca_deployed = weekly_investment * num_weeks
+
+        # DCA simulation
+        dca_btc = 0
+        dca_invested = 0
+        week_counter = 0
+
+        for idx, row in df.iterrows():
+            if idx % 7 == 0 and dca_invested < total_dca_deployed:  # Weekly investment
+                dca_btc += weekly_investment / row['close']
+                dca_invested += weekly_investment
+                week_counter += 1
+
+        dca_final_value = dca_btc * df.iloc[-1]['close']
+        dca_return = ((dca_final_value - dca_invested) / dca_invested) * 100
+
+        # Pocojuan Model: Start with SAME total amount as DCA will deploy
+        model_cash = total_dca_deployed
+        model_btc = 0
         trades = 0
-        portfolio_history = []
 
         for idx, row in df.iterrows():
             # Skip rows with missing data
             if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
-                portfolio_value = cash + (btc_holdings * row['close'])
-                portfolio_history.append({
-                    'time': row['time'],
-                    'value': portfolio_value
-                })
                 continue
 
             signals = get_signals(row, config)
             if not signals:
-                portfolio_value = cash + (btc_holdings * row['close'])
-                portfolio_history.append({
-                    'time': row['time'],
-                    'value': portfolio_value
-                })
                 continue
 
             # Execute trades based on signals
-            if signals['action_class'] == 'buy' and cash > 0:
-                # Buy with 10% of available cash
-                buy_amount = cash * 0.1
+            if signals['action_class'] == 'buy' and model_cash > 0:
+                # Buy with 1% of available cash
+                buy_amount = model_cash * 0.01
                 btc_bought = buy_amount / row['close']
-                btc_holdings += btc_bought
-                cash -= buy_amount
+                model_btc += btc_bought
+                model_cash -= buy_amount
                 trades += 1
-            elif signals['action_class'] == 'sell' and btc_holdings > 0:
-                # Sell 10% of BTC holdings
-                btc_to_sell = btc_holdings * 0.1
+            elif signals['action_class'] == 'sell' and model_btc > 0:
+                # Sell 1% of BTC holdings
+                btc_to_sell = model_btc * 0.01
                 cash_from_sale = btc_to_sell * row['close']
-                btc_holdings -= btc_to_sell
-                cash += cash_from_sale
+                model_btc -= btc_to_sell
+                model_cash += cash_from_sale
                 trades += 1
 
-            # Track portfolio value
-            portfolio_value = cash + (btc_holdings * row['close'])
-            portfolio_history.append({
-                'time': row['time'],
-                'value': portfolio_value
-            })
-
-        if len(portfolio_history) == 0:
-            return None
-
-        ending_balance = portfolio_history[-1]['value']
-        total_return = ((ending_balance - starting_balance) / starting_balance) * 100
+        model_final_value = model_cash + (model_btc * df.iloc[-1]['close'])
+        model_return = ((model_final_value - total_dca_deployed) / total_dca_deployed) * 100
+        outperformance = model_return - dca_return
 
         return {
-            'starting_balance': round(starting_balance, 2),
-            'ending_balance': round(ending_balance, 2),
-            'total_return': round(total_return, 2),
+            'model_final_value': round(model_final_value, 2),
+            'model_return': round(model_return, 2),
+            'dca_final_value': round(dca_final_value, 2),
+            'dca_return': round(dca_return, 2),
+            'outperformance': round(outperformance, 2),
             'trades': trades,
-            'portfolio_history': portfolio_history,
+            'starting_amount': round(total_dca_deployed, 2),
             'start_date': df.iloc[0]['time'].strftime('%Y-%m-%d'),
             'end_date': df.iloc[-1]['time'].strftime('%Y-%m-%d')
         }
     except Exception as e:
-        print(f"[ERROR] Portfolio growth calculation: {e}")
+        print(f"[ERROR] DCA comparison calculation: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -666,7 +666,7 @@ def api_data():
         sig_rsi = {'value': 1, 'text': 'HOLD'}
 
     # Calculate Portfolio Growth
-    portfolio_growth = calculate_portfolio_growth(data, CONFIG)
+    dca_comparison = calculate_dca_comparison(data, CONFIG)
 
     # Prepare response
     response_data = {
@@ -698,7 +698,7 @@ def api_data():
 
         # Config & stats
         'config': CONFIG,
-        'portfolio_growth': portfolio_growth
+        'dca_comparison': dca_comparison
     }
 
     DATA_CACHE['chart_data'] = response_data
@@ -1994,7 +1994,7 @@ def index():
             const signals = data.signals;
             const config = data.config;
             const p = config.parameters;
-            const portfolio = data.portfolio_growth || {};
+            const dca = data.dca_comparison || {};
 
             faqDiv.innerHTML = `
                 <div class="faq-content">
@@ -2048,55 +2048,41 @@ def index():
                     </div>
 
                     <div class="faq-section">
-                        <div class="faq-section-title">Portfolio Growth Performance</div>
+                        <div class="faq-section-title">Performance vs. DCA</div>
                         <div class="faq-section-content">
-                            <p>The model makes frequent small buys (during fear) and sells (during greed) to smooth out market volatility and compound gains over time. Portfolio value is calculated as: <strong>cash + BTC holdings × current price</strong>.</p>
+                            <p>Starting from ${dca.start_date || '2017'}, comparing the Pocojuan Model against a simple $100/week Dollar-Cost Averaging strategy. Both strategies start with the same total capital ($${dca.starting_amount ? dca.starting_amount.toLocaleString() : '--'}).</p>
 
                             <div class="comparison-card">
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px;">
-                                    <div style="text-align: center;">
-                                        <div class="comparison-label">Starting Balance</div>
-                                        <div style="font-size: 20px; font-weight: 700; color: #6b7280;">
-                                            $${portfolio.starting_balance ? portfolio.starting_balance.toLocaleString() : '--'}
-                                        </div>
-                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
-                                            ${portfolio.start_date || '--'}
+                                <div class="comparison-grid">
+                                    <div class="comparison-item">
+                                        <div class="comparison-label">Pocojuan Model</div>
+                                        <div class="comparison-value">$${dca.model_final_value ? dca.model_final_value.toLocaleString() : '--'}</div>
+                                        <div style="font-size: 12px; color: #10b981; font-weight: 600; margin-top: 4px;">
+                                            +${dca.model_return ? dca.model_return.toFixed(0) : '--'}%
                                         </div>
                                     </div>
 
-                                    <div style="text-align: center;">
-                                        <div class="comparison-label">Ending Balance</div>
-                                        <div style="font-size: 20px; font-weight: 700; color: #10b981;">
-                                            $${portfolio.ending_balance ? portfolio.ending_balance.toLocaleString() : '--'}
-                                        </div>
-                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
-                                            ${portfolio.end_date || '--'}
+                                    <div class="comparison-item">
+                                        <div class="comparison-label">Simple DCA</div>
+                                        <div class="comparison-value" style="color: #6b7280;">$${dca.dca_final_value ? dca.dca_final_value.toLocaleString() : '--'}</div>
+                                        <div style="font-size: 12px; color: #6b7280; font-weight: 600; margin-top: 4px;">
+                                            +${dca.dca_return ? dca.dca_return.toFixed(0) : '--'}%
                                         </div>
                                     </div>
                                 </div>
 
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
-                                    <div style="text-align: center;">
-                                        <div class="comparison-label">Total Return</div>
-                                        <div style="font-size: 24px; font-weight: 700; color: #10b981;">
-                                            +${portfolio.total_return ? portfolio.total_return.toFixed(1) : '--'}%
-                                        </div>
+                                <div style="text-align: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
+                                    <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">Outperformance</div>
+                                    <div style="font-size: 20px; font-weight: 700; color: #10b981;">
+                                        +${dca.outperformance ? dca.outperformance.toFixed(0) : '--'}%
                                     </div>
-
-                                    <div style="text-align: center;">
-                                        <div class="comparison-label">Number of Trades</div>
-                                        <div style="font-size: 24px; font-weight: 700; color: #374151;">
-                                            ${portfolio.trades || '--'}
-                                        </div>
+                                    <div style="font-size: 11px; color: #6b7280; margin-top: 8px;">
+                                        ${dca.trades || '--'} total trades executed
                                     </div>
                                 </div>
                             </div>
 
-                            <div id="portfolio-chart" style="height: 250px; margin-top: 16px; background: #f9fafb; border-radius: 8px;"></div>
-
-                            <p style="margin-top: 16px; font-size: 13px; color: #6b7280; font-style: italic;">
-                                Note: This backtest uses 10% position sizing per signal. The model generates signals based on the four weighted indicators. Actual results may vary based on execution, fees, and market conditions.
-                            </p>
+                            <p style="margin-top: 16px;">The Pocojuan Model's weighted indicator system outperforms dollar-cost averaging by making strategic buys during market fear and sells during extreme greed. Both strategies had equal capital deployed over the same time period for a fair comparison.</p>
                         </div>
                     </div>
 
@@ -2109,43 +2095,6 @@ def index():
                 </div>
             `;
 
-            // Render portfolio chart if data is available
-            if (portfolio.portfolio_history && portfolio.portfolio_history.length > 0) {
-                const portfolioTrace = {
-                    type: 'scatter',
-                    mode: 'lines',
-                    x: portfolio.portfolio_history.map(p => p.time),
-                    y: portfolio.portfolio_history.map(p => p.value),
-                    name: 'Portfolio Value',
-                    line: {color: '#10b981', width: 2},
-                    fill: 'tozeroy',
-                    fillcolor: 'rgba(16,185,129,0.1)'
-                };
-
-                const portfolioLayout = {
-                    paper_bgcolor: '#f9fafb',
-                    plot_bgcolor: '#ffffff',
-                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, sans-serif', size: 10},
-                    showlegend: false,
-                    hovermode: 'x unified',
-                    dragmode: false,
-                    xaxis: {
-                        type: 'date',
-                        gridcolor: '#e5e7eb',
-                        fixedrange: true
-                    },
-                    yaxis: {
-                        title: {text: 'Value ($)', font: {size: 10, color: '#6b7280'}},
-                        gridcolor: '#e5e7eb',
-                        fixedrange: true
-                    },
-                    margin: {l: 50, r: 20, t: 20, b: 40}
-                };
-
-                setTimeout(() => {
-                    Plotly.newPlot('portfolio-chart', [portfolioTrace], portfolioLayout, {responsive: true, displayModeBar: false, staticPlot: true});
-                }, 100);
-            }
         }
 
         function updateDataPanel(data) {
