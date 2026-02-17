@@ -38,7 +38,7 @@ def load_config():
     global CONFIG
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(script_dir, 'constrained_5stage_config.json')
+        json_path = os.path.join(script_dir, 'tuner_defaults_config.json')
 
         print(f"[INFO] Looking for config at: {json_path}")
 
@@ -49,7 +49,7 @@ def load_config():
             print(f"[INFO] Total Return: {CONFIG.get('total_return', 0):.2f}%")
             print(f"[INFO] Balanced Weights: 200W={CONFIG['weights']['w_200w']:.2f}, 50W={CONFIG['weights']['w_50w']:.2f}, F&G={CONFIG['weights']['w_fg']:.2f}, RSI={CONFIG['weights']['w_rsi']:.2f}")
         else:
-            print(f"[ERROR] constrained_5stage_config.json not found at {json_path}")
+            print(f"[ERROR] tuner_defaults_config.json not found at {json_path}")
             CONFIG = None
     except Exception as e:
         print(f"[ERROR] Loading configuration: {e}")

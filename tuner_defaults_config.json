@@ -1,0 +1,33 @@
+{
+  "parameters": {
+    "sma_200w": {
+      "buy": 1.64,
+      "sell": 3.42,
+      "decay_buy": 0.98,
+      "decay_sell": 0.92
+    },
+    "ma_50w": {
+      "bull_ext": 2.31,
+      "bull_supp": 1.19,
+      "bear_res": 0.96,
+      "bear_deep": 0.66
+    },
+    "fg": {
+      "ema_period": 38,
+      "buy": 20,
+      "sell": 51
+    },
+    "rsi": {
+      "period": 14,
+      "buy": 30,
+      "sell": 70
+    }
+  },
+  "weights": {
+    "w_200w": 1.21,
+    "w_50w": 1.33,
+    "w_fg": 1.21,
+    "w_rsi": 1.0
+  },
+  "system": "Tuner App Default Parameters (Manual Tuning Baseline)"
+}
