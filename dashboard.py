@@ -183,26 +183,22 @@ def calculate_200w_sma(df):
         return None
 
 def calculate_50w_ma_with_regime(df):
-    """Calculate 50-week MA with regime detection"""
+    """Calculate 50-week MA with regime detection using DAILY consecutive closes"""
     try:
-        # Resample to weekly data
-        df_weekly = df.set_index('time').resample('W-SUN')['close'].last().dropna()
-        ma_50w = df_weekly.rolling(window=50, min_periods=1).mean()
+        # Calculate 50-week MA (350 days) on daily data
+        df_daily = df.set_index('time').copy()
+        ma_50w_daily = df_daily['close'].rolling(window=350, min_periods=1).mean()
 
-        ma_df = pd.DataFrame({
-            'weekly_close': df_weekly,
-            'ma_50w': ma_50w
-        })
-
-        # Detect regime
+        # Detect regime using 3 consecutive DAILY closes
         regimes = []
-        for i in range(len(ma_df)):
+        for i in range(len(df_daily)):
             if i < 2:
                 regimes.append('bull')
                 continue
 
-            last_3 = ma_df.iloc[max(0, i-2):i+1]
-            above_count = (last_3['weekly_close'] > last_3['ma_50w']).sum()
+            last_3_closes = df_daily['close'].iloc[max(0, i-2):i+1]
+            last_3_ma = ma_50w_daily.iloc[max(0, i-2):i+1]
+            above_count = (last_3_closes > last_3_ma).sum()
 
             if above_count == 3:
                 regimes.append('bull')
@@ -211,10 +207,11 @@ def calculate_50w_ma_with_regime(df):
             else:
                 regimes.append(regimes[-1] if regimes else 'bull')
 
-        ma_df['regime'] = regimes
-        ma_df['ma50w_ratio'] = ma_df['weekly_close'] / ma_df['ma_50w']
+        df_daily['regime'] = regimes
+        df_daily['ma_50w'] = ma_50w_daily
+        df_daily['ma50w_ratio'] = df_daily['close'] / ma_50w_daily
 
-        return ma_df
+        return df_daily[['ma_50w', 'regime', 'ma50w_ratio']]
     except Exception as e:
         print(f"[ERROR] 50W MA calculation: {e}")
         return None
