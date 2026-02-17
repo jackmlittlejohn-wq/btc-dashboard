@@ -377,6 +377,13 @@ def prepare_all_data():
     daily_df = daily_df.merge(fg_df[['time', 'value', 'fg_ema']].set_index('time'), left_index=True, right_index=True, how='left')
     daily_df = daily_df.rename(columns={'value': 'fg_index'})
 
+    # Backfill F&G data for early years (before F&G API existed) with neutral value (50)
+    # F&G API typically only has data from Feb 2018 onwards
+    if 'fg_index' in daily_df.columns:
+        daily_df['fg_index'] = daily_df['fg_index'].fillna(50)
+    if 'fg_ema' in daily_df.columns:
+        daily_df['fg_ema'] = daily_df['fg_ema'].fillna(50)
+
     # Forward fill missing values
     for col in ['sma_200w', 'sma_ratio', 'ma_50w', 'regime', 'ma50w_ratio', 'fg_index', 'fg_ema', 'rsi']:
         if col in daily_df.columns:
@@ -593,6 +600,7 @@ def api_data():
 
     # Calculate historical signals for all rows
     historical_signals = []
+    signal_start_idx = None
     for idx, row in data['daily'].iterrows():
         if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
             historical_signals.append(None)
@@ -600,6 +608,15 @@ def api_data():
 
         hist_sig = get_signals(row, CONFIG)
         historical_signals.append(hist_sig)
+
+        # Track first valid signal for debugging
+        if signal_start_idx is None and hist_sig is not None:
+            signal_start_idx = idx
+            print(f"[INFO] First valid signal at index {idx}, date: {row['time'].strftime('%Y-%m-%d')}")
+
+    # Print signal summary
+    valid_signals = sum(1 for sig in historical_signals if sig is not None)
+    print(f"[INFO] Generated {valid_signals} valid historical signals out of {len(historical_signals)} total days")
 
     # Generate buy/sell signals
     buy_signals = {'dates': [], 'prices': []}
@@ -612,6 +629,12 @@ def api_data():
         elif historical_signals[idx] and historical_signals[idx]['action_class'] == 'sell':
             sell_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
             sell_signals['prices'].append(float(row['close']))
+
+    print(f"[INFO] Buy signals: {len(buy_signals['dates'])}, Sell signals: {len(sell_signals['dates'])}")
+    if len(buy_signals['dates']) > 0:
+        print(f"[INFO] First buy signal: {buy_signals['dates'][0]}")
+    if len(sell_signals['dates']) > 0:
+        print(f"[INFO] First sell signal: {sell_signals['dates'][0]}")
 
     # Prepare daily data for charts
     daily_data = []
@@ -1884,7 +1907,7 @@ def index():
                     hovermode: 'x unified',
                     dragmode: false,
 
-                    // Price chart (top, largest)
+                    // Price chart (top, largest) - More space allocated
                     xaxis: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1895,12 +1918,12 @@ def index():
                     yaxis: {
                         title: {text: 'BTC Price (USD)', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.55, 1],
+                        domain: [0.58, 1],
                         fixedrange: true,
                         type: 'log'
                     },
 
-                    // Combined signal chart
+                    // Combined signal chart - Increased spacing
                     xaxis2: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1911,11 +1934,11 @@ def index():
                     yaxis2: {
                         title: {text: 'Combined Signal', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.43, 0.52],
+                        domain: [0.46, 0.55],
                         fixedrange: true
                     },
 
-                    // 200W SMA weighted signal
+                    // 200W SMA weighted signal - More breathing room
                     xaxis4: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1927,11 +1950,11 @@ def index():
                     yaxis4: {
                         title: {text: '200W', font: {size: 10, color: '#f59e0b'}},
                         gridcolor: '#f3f4f6',
-                        domain: [0.34, 0.40],
+                        domain: [0.36, 0.43],
                         fixedrange: true
                     },
 
-                    // 50W MA weighted signal
+                    // 50W MA weighted signal - More breathing room
                     xaxis5: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1943,11 +1966,11 @@ def index():
                     yaxis5: {
                         title: {text: '50W', font: {size: 10, color: '#3b82f6'}},
                         gridcolor: '#f3f4f6',
-                        domain: [0.25, 0.31],
+                        domain: [0.26, 0.33],
                         fixedrange: true
                     },
 
-                    // F&G weighted signal
+                    // F&G weighted signal - More breathing room
                     xaxis6: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1959,11 +1982,11 @@ def index():
                     yaxis6: {
                         title: {text: 'F&G', font: {size: 10, color: '#8b5cf6'}},
                         gridcolor: '#f3f4f6',
-                        domain: [0.16, 0.22],
+                        domain: [0.16, 0.23],
                         fixedrange: true
                     },
 
-                    // RSI weighted signal
+                    // RSI weighted signal - More breathing room
                     xaxis7: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1975,7 +1998,7 @@ def index():
                     yaxis7: {
                         title: {text: 'RSI', font: {size: 10, color: '#ec4899'}},
                         gridcolor: '#f3f4f6',
-                        domain: [0.07, 0.13],
+                        domain: [0.06, 0.13],
                         fixedrange: true
                     },
 
@@ -2040,6 +2063,31 @@ def index():
                                 <li>Combined Score ≤ -2.0 → <strong>SELL</strong></li>
                                 <li>Otherwise → <strong>HOLD</strong></li>
                             </ul>
+
+                            <div style="margin-top: 24px; padding: 20px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; border: 1px solid #dee2e6;">
+                                <h4 style="margin: 0 0 16px 0; font-size: 14px; color: #495057; font-weight: 600;">US National Debt & Bitcoin</h4>
+                                <p style="margin: 0 0 16px 0; font-size: 13px; color: #6c757d; line-height: 1.5;">
+                                    As government debt increases and currency is debased through monetary expansion, Bitcoin's scarcity (21M fixed supply) makes it increasingly valuable as a store of value and hedge against inflation.
+                                </p>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                                    <div style="background: white; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6;">
+                                        <div style="font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Total US Debt</div>
+                                        <div id="debt-counter" style="font-size: 20px; font-weight: 700; color: #dc3545; font-variant-numeric: tabular-nums;">$36,200,000,000,000</div>
+                                        <div style="font-size: 10px; color: #868e96; margin-top: 4px;">+$1M every 30 seconds</div>
+                                    </div>
+
+                                    <div style="background: white; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6;">
+                                        <div style="font-size: 11px; color: #6c757d; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Interest Accrued Today</div>
+                                        <div id="interest-counter" style="font-size: 20px; font-weight: 700; color: #e67700; font-variant-numeric: tabular-nums;">$0</div>
+                                        <div style="font-size: 10px; color: #868e96; margin-top: 4px;">~$1B per day</div>
+                                    </div>
+                                </div>
+
+                                <div style="font-size: 11px; color: #868e96; text-align: center;">
+                                    Live counters based on current US debt trajectory
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -2118,6 +2166,79 @@ def index():
                 </div>
             `;
 
+            // Initialize debt counters after FAQ is rendered
+            initializeDebtCounters();
+        }
+
+        // National Debt Counter Logic
+        let debtCounterInterval = null;
+        let interestCounterInterval = null;
+
+        function initializeDebtCounters() {
+            // Clear any existing intervals
+            if (debtCounterInterval) clearInterval(debtCounterInterval);
+            if (interestCounterInterval) clearInterval(interestCounterInterval);
+
+            // US National Debt parameters (as of Feb 2026)
+            const initialDebt = 36.2e12; // $36.2 trillion
+            const debtIncreasePerSecond = 1e6 / 30; // $1M every 30 seconds = ~$33,333 per second
+            const interestPerDay = 1e9; // ~$1B per day
+            const interestPerSecond = interestPerDay / 86400; // Interest per second
+
+            const startTime = Date.now();
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
+            const secondsSinceStartOfDay = (Date.now() - startOfDay.getTime()) / 1000;
+
+            function formatDebt(value) {
+                if (value >= 1e12) {
+                    return '$' + (value / 1e12).toFixed(3) + 'T';
+                } else if (value >= 1e9) {
+                    return '$' + (value / 1e9).toFixed(2) + 'B';
+                } else if (value >= 1e6) {
+                    return '$' + (value / 1e6).toFixed(2) + 'M';
+                }
+                return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            }
+
+            function formatInterest(value) {
+                if (value >= 1e9) {
+                    return '$' + (value / 1e9).toFixed(3) + 'B';
+                } else if (value >= 1e6) {
+                    return '$' + (value / 1e6).toFixed(1) + 'M';
+                } else if (value >= 1e3) {
+                    return '$' + (value / 1e3).toFixed(0) + 'K';
+                }
+                return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+            }
+
+            function updateDebtCounter() {
+                const debtElement = document.getElementById('debt-counter');
+                if (!debtElement) return;
+
+                const elapsedSeconds = (Date.now() - startTime) / 1000;
+                const currentDebt = initialDebt + (debtIncreasePerSecond * elapsedSeconds);
+                debtElement.textContent = formatDebt(currentDebt);
+            }
+
+            function updateInterestCounter() {
+                const interestElement = document.getElementById('interest-counter');
+                if (!interestElement) return;
+
+                const currentSecondsSinceStartOfDay = secondsSinceStartOfDay + ((Date.now() - startTime) / 1000);
+                const currentInterest = interestPerSecond * currentSecondsSinceStartOfDay;
+                interestElement.textContent = formatInterest(currentInterest);
+            }
+
+            // Initial update
+            updateDebtCounter();
+            updateInterestCounter();
+
+            // Update debt counter every 100ms for smooth ticking
+            debtCounterInterval = setInterval(updateDebtCounter, 100);
+
+            // Update interest counter every 1 second
+            interestCounterInterval = setInterval(updateInterestCounter, 1000);
         }
 
         function updateDataPanel(data) {
