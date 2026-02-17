@@ -444,32 +444,84 @@ def calculate_performance_stats(data, config):
         print(f"[ERROR] Performance calculation: {e}")
         return {'total_trades': 0, 'win_rate': 0, 'total_return': 0}
 
-def calculate_dca_comparison(data):
-    """Calculate DCA vs Pocojuan Model comparison"""
+def calculate_portfolio_growth(data, config):
+    """Calculate portfolio growth performance from 2018 onwards"""
     try:
-        valid_data = data['daily'][data['daily']['close'].notna()].copy()
-        if len(valid_data) == 0:
+        # Filter data from 2018 onwards
+        df = data['daily'].copy()
+        df = df[df['time'].dt.year >= 2018].reset_index(drop=True)
+
+        if len(df) == 0:
             return None
 
-        # DCA: $1000 invested evenly
-        daily_investment = 1000 / len(valid_data)
-        dca_btc = sum(daily_investment / row['close'] for _, row in valid_data.iterrows())
-        dca_final_value = dca_btc * valid_data.iloc[-1]['close']
-        dca_return = ((dca_final_value - 1000) / 1000) * 100
+        # Initialize portfolio
+        starting_balance = 1000
+        cash = starting_balance
+        btc_holdings = 0
+        trades = 0
+        portfolio_history = []
 
-        # Pocojuan Model
-        model_final_value = CONFIG.get('final_value', 0)
-        model_return = CONFIG.get('total_return', 0)
+        for idx, row in df.iterrows():
+            # Skip rows with missing data
+            if pd.isna(row['sma_ratio']) or pd.isna(row['ma50w_ratio']) or pd.isna(row['fg_ema']) or pd.isna(row['rsi']):
+                portfolio_value = cash + (btc_holdings * row['close'])
+                portfolio_history.append({
+                    'time': row['time'],
+                    'value': portfolio_value
+                })
+                continue
+
+            signals = get_signals(row, config)
+            if not signals:
+                portfolio_value = cash + (btc_holdings * row['close'])
+                portfolio_history.append({
+                    'time': row['time'],
+                    'value': portfolio_value
+                })
+                continue
+
+            # Execute trades based on signals
+            if signals['action_class'] == 'buy' and cash > 0:
+                # Buy with 10% of available cash
+                buy_amount = cash * 0.1
+                btc_bought = buy_amount / row['close']
+                btc_holdings += btc_bought
+                cash -= buy_amount
+                trades += 1
+            elif signals['action_class'] == 'sell' and btc_holdings > 0:
+                # Sell 10% of BTC holdings
+                btc_to_sell = btc_holdings * 0.1
+                cash_from_sale = btc_to_sell * row['close']
+                btc_holdings -= btc_to_sell
+                cash += cash_from_sale
+                trades += 1
+
+            # Track portfolio value
+            portfolio_value = cash + (btc_holdings * row['close'])
+            portfolio_history.append({
+                'time': row['time'],
+                'value': portfolio_value
+            })
+
+        if len(portfolio_history) == 0:
+            return None
+
+        ending_balance = portfolio_history[-1]['value']
+        total_return = ((ending_balance - starting_balance) / starting_balance) * 100
 
         return {
-            'dca_final_value': round(dca_final_value, 2),
-            'dca_return': round(dca_return, 2),
-            'model_final_value': round(model_final_value, 2),
-            'model_return': round(model_return, 2),
-            'outperformance': round(model_return - dca_return, 2)
+            'starting_balance': round(starting_balance, 2),
+            'ending_balance': round(ending_balance, 2),
+            'total_return': round(total_return, 2),
+            'trades': trades,
+            'portfolio_history': portfolio_history,
+            'start_date': df.iloc[0]['time'].strftime('%Y-%m-%d'),
+            'end_date': df.iloc[-1]['time'].strftime('%Y-%m-%d')
         }
     except Exception as e:
-        print(f"[ERROR] DCA calculation: {e}")
+        print(f"[ERROR] Portfolio growth calculation: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 # ============================================================================
@@ -616,8 +668,8 @@ def api_data():
         sig_fg = {'value': 1, 'text': 'HOLD'}
         sig_rsi = {'value': 1, 'text': 'HOLD'}
 
-    # Calculate DCA comparison
-    dca_comparison = calculate_dca_comparison(data)
+    # Calculate Portfolio Growth
+    portfolio_growth = calculate_portfolio_growth(data, CONFIG)
 
     # Prepare response
     response_data = {
@@ -649,7 +701,7 @@ def api_data():
 
         # Config & stats
         'config': CONFIG,
-        'dca_comparison': dca_comparison
+        'portfolio_growth': portfolio_growth
     }
 
     DATA_CACHE['chart_data'] = response_data
@@ -1290,7 +1342,7 @@ def index():
                     <div class="data-value" id="fg">--</div>
                 </div>
                 <div class="data-card">
-                    <div class="data-label">RSI (25d)</div>
+                    <div class="data-label">RSI (21d)</div>
                     <div class="data-value" id="rsi">--</div>
                 </div>
                 <div class="last-update" id="last-update">Last update: --</div>
@@ -1689,7 +1741,7 @@ def index():
                     showlegend: true
                 };
 
-                // Individual weighted signals (STEPPED)
+                // Individual weighted signals (STEPPED) - Separate stacked mini-charts
                 const trace200w = {
                     type: 'scatter',
                     mode: 'lines',
@@ -1697,8 +1749,10 @@ def index():
                     y: filtered.map(d => d.weighted_200w),
                     name: '200W SMA',
                     line: {color: '#f59e0b', width: 1.5, shape: 'hv'},
-                    yaxis: 'y2',
-                    xaxis: 'x2'
+                    yaxis: 'y4',
+                    xaxis: 'x4',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(245,158,11,0.1)'
                 };
 
                 const trace50w = {
@@ -1708,8 +1762,10 @@ def index():
                     y: filtered.map(d => d.weighted_50w),
                     name: '50W MA',
                     line: {color: '#3b82f6', width: 1.5, shape: 'hv'},
-                    yaxis: 'y2',
-                    xaxis: 'x2'
+                    yaxis: 'y5',
+                    xaxis: 'x5',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(59,130,246,0.1)'
                 };
 
                 const traceFG = {
@@ -1719,8 +1775,10 @@ def index():
                     y: filtered.map(d => d.weighted_fg),
                     name: 'F&G',
                     line: {color: '#8b5cf6', width: 1.5, shape: 'hv'},
-                    yaxis: 'y2',
-                    xaxis: 'x2'
+                    yaxis: 'y6',
+                    xaxis: 'x6',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(139,92,246,0.1)'
                 };
 
                 const traceRSI = {
@@ -1730,8 +1788,10 @@ def index():
                     y: filtered.map(d => d.weighted_rsi),
                     name: 'RSI',
                     line: {color: '#ec4899', width: 1.5, shape: 'hv'},
-                    yaxis: 'y2',
-                    xaxis: 'x2'
+                    yaxis: 'y7',
+                    xaxis: 'x7',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(236,72,153,0.1)'
                 };
 
                 // Combined signal (STEPPED)
@@ -1742,8 +1802,8 @@ def index():
                     y: filtered.map(d => d.combined),
                     name: 'Combined',
                     line: {color: '#1f2937', width: 2, shape: 'hv'},
-                    yaxis: 'y3',
-                    xaxis: 'x3',
+                    yaxis: 'y2',
+                    xaxis: 'x2',
                     fill: 'tozeroy',
                     fillcolor: 'rgba(107,114,128,0.1)'
                 };
@@ -1756,8 +1816,8 @@ def index():
                     y: [2, 2],
                     name: 'Buy Threshold',
                     line: {color: '#10b981', width: 1.5, dash: 'dash'},
-                    yaxis: 'y3',
-                    xaxis: 'x3',
+                    yaxis: 'y2',
+                    xaxis: 'x2',
                     showlegend: false
                 };
 
@@ -1768,22 +1828,22 @@ def index():
                     y: [-2, -2],
                     name: 'Sell Threshold',
                     line: {color: '#ef4444', width: 1.5, dash: 'dash'},
-                    yaxis: 'y3',
-                    xaxis: 'x3',
+                    yaxis: 'y2',
+                    xaxis: 'x2',
                     showlegend: false
                 };
 
-                // Market regime - single bar that changes color
+                // Market regime - thin colored stripe at bottom
                 const regimeTrace = {
                     type: 'bar',
                     x: times,
-                    y: Array(times.length).fill(1),  // Fill entire height
-                    name: 'Market Regime',
+                    y: Array(times.length).fill(1),
+                    name: 'Regime',
                     marker: {
-                        color: filtered.map(d => d.regime === 'BULL' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)')
+                        color: filtered.map(d => d.regime === 'BULL' ? '#10b981' : '#ef4444')
                     },
-                    yaxis: 'y4',
-                    xaxis: 'x4',
+                    yaxis: 'y8',
+                    xaxis: 'x8',
                     showlegend: false,
                     hovertemplate: '%{text}<extra></extra>',
                     text: filtered.map(d => d.regime === 'BULL' ? 'BULL MARKET' : 'BEAR MARKET')
@@ -1815,12 +1875,12 @@ def index():
                     yaxis: {
                         title: {text: 'BTC Price (USD)', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.5, 1],
+                        domain: [0.55, 1],
                         fixedrange: true,
                         type: 'log'
                     },
 
-                    // Weighted signals chart
+                    // Combined signal chart
                     xaxis2: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
@@ -1829,42 +1889,91 @@ def index():
                         fixedrange: true
                     },
                     yaxis2: {
-                        title: {text: 'Weighted Signals', font: {size: 11, color: '#6b7280'}},
-                        gridcolor: '#e5e7eb',
-                        domain: [0.32, 0.46],
-                        fixedrange: true
-                    },
-
-                    // Combined signal chart
-                    xaxis3: {
-                        type: 'date',
-                        gridcolor: '#e5e7eb',
-                        domain: [0, 1],
-                        anchor: 'y3',
-                        fixedrange: true
-                    },
-                    yaxis3: {
                         title: {text: 'Combined Signal', font: {size: 11, color: '#6b7280'}},
                         gridcolor: '#e5e7eb',
-                        domain: [0.16, 0.28],
+                        domain: [0.43, 0.52],
                         fixedrange: true
                     },
 
-                    // Regime chart (bottom)
+                    // 200W SMA weighted signal
                     xaxis4: {
                         type: 'date',
                         gridcolor: '#e5e7eb',
                         domain: [0, 1],
                         anchor: 'y4',
-                        fixedrange: true
+                        fixedrange: true,
+                        showticklabels: false
                     },
                     yaxis4: {
-                        title: {text: 'Regime', font: {size: 11, color: '#6b7280'}},
+                        title: {text: '200W', font: {size: 10, color: '#f59e0b'}},
+                        gridcolor: '#f3f4f6',
+                        domain: [0.34, 0.40],
+                        fixedrange: true
+                    },
+
+                    // 50W MA weighted signal
+                    xaxis5: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y5',
+                        fixedrange: true,
+                        showticklabels: false
+                    },
+                    yaxis5: {
+                        title: {text: '50W', font: {size: 10, color: '#3b82f6'}},
+                        gridcolor: '#f3f4f6',
+                        domain: [0.25, 0.31],
+                        fixedrange: true
+                    },
+
+                    // F&G weighted signal
+                    xaxis6: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y6',
+                        fixedrange: true,
+                        showticklabels: false
+                    },
+                    yaxis6: {
+                        title: {text: 'F&G', font: {size: 10, color: '#8b5cf6'}},
+                        gridcolor: '#f3f4f6',
+                        domain: [0.16, 0.22],
+                        fixedrange: true
+                    },
+
+                    // RSI weighted signal
+                    xaxis7: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y7',
+                        fixedrange: true,
+                        showticklabels: false
+                    },
+                    yaxis7: {
+                        title: {text: 'RSI', font: {size: 10, color: '#ec4899'}},
+                        gridcolor: '#f3f4f6',
+                        domain: [0.07, 0.13],
+                        fixedrange: true
+                    },
+
+                    // Regime stripe (very bottom)
+                    xaxis8: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        domain: [0, 1],
+                        anchor: 'y8',
+                        fixedrange: true
+                    },
+                    yaxis8: {
                         gridcolor: 'transparent',
-                        domain: [0, 0.12],
+                        domain: [0, 0.04],
                         fixedrange: true,
                         showticklabels: false,
-                        zeroline: false
+                        zeroline: false,
+                        showgrid: false
                     },
 
                     margin: {l: 60, r: 40, t: 60, b: 60}
@@ -1888,7 +1997,7 @@ def index():
             const signals = data.signals;
             const config = data.config;
             const p = config.parameters;
-            const dca = data.dca_comparison || {};
+            const portfolio = data.portfolio_growth || {};
 
             faqDiv.innerHTML = `
                 <div class="faq-content">
@@ -1942,38 +2051,55 @@ def index():
                     </div>
 
                     <div class="faq-section">
-                        <div class="faq-section-title">Performance vs. DCA</div>
+                        <div class="faq-section-title">Portfolio Growth Performance</div>
                         <div class="faq-section-content">
-                            <p>Starting with $1,000 invested since 2017:</p>
+                            <p>The model makes frequent small buys (during fear) and sells (during greed) to smooth out market volatility and compound gains over time. Portfolio value is calculated as: <strong>cash + BTC holdings × current price</strong>.</p>
 
                             <div class="comparison-card">
-                                <div class="comparison-grid">
-                                    <div class="comparison-item">
-                                        <div class="comparison-label">Pocojuan Model</div>
-                                        <div class="comparison-value">$${dca.model_final_value ? dca.model_final_value.toLocaleString() : '--'}</div>
-                                        <div style="font-size: 12px; color: #10b981; font-weight: 600; margin-top: 4px;">
-                                            +${dca.model_return ? dca.model_return.toFixed(0) : '--'}%
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px;">
+                                    <div style="text-align: center;">
+                                        <div class="comparison-label">Starting Balance</div>
+                                        <div style="font-size: 20px; font-weight: 700; color: #6b7280;">
+                                            $${portfolio.starting_balance ? portfolio.starting_balance.toLocaleString() : '--'}
+                                        </div>
+                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
+                                            ${portfolio.start_date || '--'}
                                         </div>
                                     </div>
 
-                                    <div class="comparison-item">
-                                        <div class="comparison-label">Simple DCA</div>
-                                        <div class="comparison-value" style="color: #6b7280;">$${dca.dca_final_value ? dca.dca_final_value.toLocaleString() : '--'}</div>
-                                        <div style="font-size: 12px; color: #6b7280; font-weight: 600; margin-top: 4px;">
-                                            +${dca.dca_return ? dca.dca_return.toFixed(0) : '--'}%
+                                    <div style="text-align: center;">
+                                        <div class="comparison-label">Ending Balance</div>
+                                        <div style="font-size: 20px; font-weight: 700; color: #10b981;">
+                                            $${portfolio.ending_balance ? portfolio.ending_balance.toLocaleString() : '--'}
+                                        </div>
+                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
+                                            ${portfolio.end_date || '--'}
                                         </div>
                                     </div>
                                 </div>
 
-                                <div style="text-align: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
-                                    <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">Outperformance</div>
-                                    <div style="font-size: 20px; font-weight: 700; color: #10b981;">
-                                        +${dca.outperformance ? dca.outperformance.toFixed(0) : '--'}%
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+                                    <div style="text-align: center;">
+                                        <div class="comparison-label">Total Return</div>
+                                        <div style="font-size: 24px; font-weight: 700; color: #10b981;">
+                                            +${portfolio.total_return ? portfolio.total_return.toFixed(1) : '--'}%
+                                        </div>
+                                    </div>
+
+                                    <div style="text-align: center;">
+                                        <div class="comparison-label">Number of Trades</div>
+                                        <div style="font-size: 24px; font-weight: 700; color: #374151;">
+                                            ${portfolio.trades || '--'}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <p style="margin-top: 16px;">The Pocojuan Model's weighted indicator system significantly outperforms a simple dollar-cost averaging strategy by timing entries and exits based on multi-factor technical analysis.</p>
+                            <div id="portfolio-chart" style="height: 250px; margin-top: 16px; background: #f9fafb; border-radius: 8px;"></div>
+
+                            <p style="margin-top: 16px; font-size: 13px; color: #6b7280; font-style: italic;">
+                                Note: This backtest uses 10% position sizing per signal. The model generates signals based on the four weighted indicators. Actual results may vary based on execution, fees, and market conditions.
+                            </p>
                         </div>
                     </div>
 
@@ -1985,6 +2111,44 @@ def index():
                     </div>
                 </div>
             `;
+
+            // Render portfolio chart if data is available
+            if (portfolio.portfolio_history && portfolio.portfolio_history.length > 0) {
+                const portfolioTrace = {
+                    type: 'scatter',
+                    mode: 'lines',
+                    x: portfolio.portfolio_history.map(p => p.time),
+                    y: portfolio.portfolio_history.map(p => p.value),
+                    name: 'Portfolio Value',
+                    line: {color: '#10b981', width: 2},
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(16,185,129,0.1)'
+                };
+
+                const portfolioLayout = {
+                    paper_bgcolor: '#f9fafb',
+                    plot_bgcolor: '#ffffff',
+                    font: {color: '#374151', family: '-apple-system, BlinkMacSystemFont, sans-serif', size: 10},
+                    showlegend: false,
+                    hovermode: 'x unified',
+                    dragmode: false,
+                    xaxis: {
+                        type: 'date',
+                        gridcolor: '#e5e7eb',
+                        fixedrange: true
+                    },
+                    yaxis: {
+                        title: {text: 'Value ($)', font: {size: 10, color: '#6b7280'}},
+                        gridcolor: '#e5e7eb',
+                        fixedrange: true
+                    },
+                    margin: {l: 50, r: 20, t: 20, b: 40}
+                };
+
+                setTimeout(() => {
+                    Plotly.newPlot('portfolio-chart', [portfolioTrace], portfolioLayout, {responsive: true, displayModeBar: false, staticPlot: true});
+                }, 100);
+            }
         }
 
         function updateDataPanel(data) {
