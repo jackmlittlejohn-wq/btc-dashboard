@@ -455,14 +455,14 @@ def calculate_performance_stats(data, config):
         return {'total_trades': 0, 'win_rate': 0, 'total_return': 0}
 
 def calculate_dca_comparison(data, config):
-    """Calculate Pocojuan Model vs DCA - apples to apples comparison from 2017"""
+    """Calculate Pocojuan Model vs DCA - apples to apples comparison from Jan 2021"""
     try:
-        # Filter data from 2017 onwards
+        # Filter data from Jan 2021 onwards
         df = data['daily'].copy()
-        df = df[df['time'].dt.year >= 2017].reset_index(drop=True)
+        df = df[df['time'] >= '2021-01-01'].reset_index(drop=True)
 
         if len(df) == 0:
-            print("[ERROR] No data for 2017+")
+            print("[ERROR] No data for 2021+")
             return None
 
         # Calculate DCA strategy: $100 per week
@@ -629,12 +629,14 @@ def api_data():
     sell_signals = {'dates': [], 'prices': []}
 
     for idx, (_, row) in enumerate(data['daily'].iterrows()):
-        if historical_signals[idx] and historical_signals[idx]['action_class'] == 'buy':
-            buy_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
-            buy_signals['prices'].append(float(row['close']))
-        elif historical_signals[idx] and historical_signals[idx]['action_class'] == 'sell':
-            sell_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
-            sell_signals['prices'].append(float(row['close']))
+        # Only include signals from 2021+ onwards
+        if row['time'] >= '2021-01-01':
+            if historical_signals[idx] and historical_signals[idx]['action_class'] == 'buy':
+                buy_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
+                buy_signals['prices'].append(float(row['close']))
+            elif historical_signals[idx] and historical_signals[idx]['action_class'] == 'sell':
+                sell_signals['dates'].append(row['time'].strftime('%Y-%m-%d'))
+                sell_signals['prices'].append(float(row['close']))
 
     print(f"[INFO] Buy signals: {len(buy_signals['dates'])}, Sell signals: {len(sell_signals['dates'])}")
     if len(buy_signals['dates']) > 0:
@@ -642,9 +644,11 @@ def api_data():
     if len(sell_signals['dates']) > 0:
         print(f"[INFO] First sell signal: {sell_signals['dates'][0]}")
 
-    # Prepare daily data for charts
+    # Prepare daily data for charts (filter to 2021+ only)
+    daily_filtered = data['daily'][data['daily']['time'] >= '2021-01-01'].reset_index(drop=True)
+
     daily_data = []
-    for idx, row in data['daily'].iterrows():
+    for idx, row in daily_filtered.iterrows():
         daily_data.append({
             'time': row['time'].strftime('%Y-%m-%d'),
             'open': float(row['open']),
@@ -660,10 +664,10 @@ def api_data():
             'regime': row['regime'] if 'regime' in row and not pd.isna(row['regime']) else None
         })
 
-    # Prepare historical signal data for visualization
+    # Prepare historical signal data for visualization (filter to 2021+ only)
     historical_signal_data = []
     for idx, sig in enumerate(historical_signals):
-        if sig:
+        if sig and data['daily'].iloc[idx]['time'] >= '2021-01-01':
             historical_signal_data.append({
                 'time': data['daily'].iloc[idx]['time'].strftime('%Y-%m-%d'),
                 'sig_200w': sig['200w']['signal'],
